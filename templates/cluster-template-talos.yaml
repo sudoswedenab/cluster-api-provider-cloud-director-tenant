@@ -1,0 +1,105 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+spec:
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: CloudDirectorTenantCluster
+    name: ${CLUSTER_NAME}
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+    kind: TalosControlPlane
+    name: ${CLUSTER_NAME}-controlplane
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: CloudDirectorTenantCluster
+metadata:
+  name: ${CLUSTER_NAME}
+spec:
+  org: SUD9997
+  vdc: SUD9997-Prod
+  edgeGateway: SUD9997-Tier1
+  network: SUD9997-Network01
+  identityRef:
+    kind: Secret
+    name: it-total
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: TalosControlPlane
+metadata:
+  name: ${CLUSTER_NAME}-controlplane
+spec:
+  version: v1.29.1
+  replicas: 3
+  controlPlaneConfig:
+    controlplane:
+      generateType: controlplane
+      talosVersion: v1.6
+      configPatches:
+      - op: add
+        path: /cluster/externalCloudProvider
+        value:
+          enabled: true
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: CloudDirectorTenantMachineTemplate
+    name: ${CLUSTER_NAME}-controlplane
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: CloudDirectorTenantMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-controlplane
+spec:
+  template:
+    spec:
+      catalog: talos-v1.6.4
+      template: talos
+      networkAdapterType: e1000
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: TalosConfigTemplate
+metadata:
+  name: ${CLUSTER_NAME}-worker
+spec:
+  template:
+    spec:
+      generateType: worker
+      talosVersion: v1.6
+      configPatches:
+      - op: add
+        path: /cluster/externalCloudProvider
+        value:
+          enabled: true
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: CloudDirectorTenantMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-worker
+spec:
+  template:
+    spec:
+      catalog: talos-v1.6.4
+      template: talos
+      networkAdapterType: e1000
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: ${CLUSTER_NAME}-worker
+spec:
+  clusterName: ${CLUSTER_NAME}
+  replicas: 2
+  template:
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: TalosConfigTemplate
+          name: ${CLUSTER_NAME}-worker
+      clusterName: ${CLUSTER_NAME}
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: CloudDirectorTenantMachineTemplate
+        name: ${CLUSTER_NAME}-worker
+      version: v1.29.1

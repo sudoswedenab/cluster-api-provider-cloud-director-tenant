@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- infrastructure.cluster.x-k8s.io_clouddirectortenantclusters.yaml
+- infrastructure.cluster.x-k8s.io_clouddirectortenantmachines.yaml
+- infrastructure.cluster.x-k8s.io_clouddirectortenantmachinetemplates.yaml
+labels:
+- includeSelectors: true
+  pairs:
+    cluster.x-k8s.io/v1beta1: v1alpha1
