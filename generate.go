@@ -1,3 +1,3 @@
 package main
 
-//go:generate controller-gen crd object paths="./..."
+//go:generate controller-gen crd object rbac:roleName=manager-role paths="./..."

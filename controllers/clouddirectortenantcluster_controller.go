@@ -21,6 +21,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantclusters,verbs=get;list;patch;watch
+// +kuberuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
+
 const (
 	CloudDirectorTenantClusterFinalizer = "cloud-director-tenant.infrastructure.cluster.x-k8s.io/finalizer"
 )

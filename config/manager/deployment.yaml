@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: controller-manager
+  name: controller-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller-manager
+  template:
+    metadata:
+      labels:
+        app: controller-manager
+    spec:
+      containers:
+      - image: controller:latest
+        name: controller
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65534
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: manager
