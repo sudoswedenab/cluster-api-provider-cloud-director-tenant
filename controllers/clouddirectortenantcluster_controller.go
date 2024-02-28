@@ -87,7 +87,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		return ctrl.Result{}, err
 	}
 
-	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Org)
+	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
 	if err != nil {
 		logger.Error(err, "error getting org from vcloud")
 
@@ -96,7 +96,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 	logger.Info("got org", "id", org.Org.ID)
 
-	vdc, err := org.GetVDCByName(tenantCluster.Spec.VDC, false)
+	vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, false)
 	if err != nil {
 		logger.Error(err, "error getting vdc")
 
@@ -255,22 +255,26 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 	logger.Info("reconciled virtual service", "id", nsxtAlbVirtualService.NsxtAlbVirtualService.ID)
 
-	if tenantCluster.Status.LoadBalancerVirtualServiceID != nsxtAlbVirtualService.NsxtAlbVirtualService.ID || tenantCluster.Status.FirewallGroupID != nsxtFirewallGroup.NsxtFirewallGroup.ID || tenantCluster.Status.AlbPoolID != nsxtAlbPool.NsxtAlbPool.ID {
-		patch := client.MergeFrom(tenantCluster.DeepCopy())
+	tenantCluster.Status.VirtualService = &tenantv1.CloudDirectorReference{
+		ID:   nsxtAlbVirtualService.NsxtAlbVirtualService.ID,
+		Name: nsxtAlbVirtualService.NsxtAlbVirtualService.Name,
+	}
 
-		tenantCluster.Status.LoadBalancerVirtualServiceID = nsxtAlbVirtualService.NsxtAlbVirtualService.ID
-		tenantCluster.Status.FirewallGroupID = nsxtFirewallGroup.NsxtFirewallGroup.ID
-		tenantCluster.Status.AlbPoolID = nsxtAlbPool.NsxtAlbPool.ID
+	tenantCluster.Status.Pool = &tenantv1.CloudDirectorReference{
+		ID:   nsxtAlbPool.NsxtAlbPool.ID,
+		Name: nsxtAlbPool.NsxtAlbPool.Name,
+	}
 
-		err := r.Status().Patch(ctx, &tenantCluster, patch)
-		if err != nil {
-			logger.Error(err, "error patching cluster")
-
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
+	tenantCluster.Status.IPSet = &tenantv1.CloudDirectorReference{
+		ID:   nsxtFirewallGroup.NsxtFirewallGroup.ID,
+		Name: nsxtFirewallGroup.NsxtFirewallGroup.Name,
 	}
 
 	vApp, err := vdc.GetVAppByName(tenantCluster.Name, true)
+	if vcdutil.IgnoreNotFound(err) != nil {
+		return ctrl.Result{}, err
+	}
+
 	if govcd.ContainsNotFound(err) {
 		vApp, err = vdc.CreateRawVApp(tenantCluster.Name, "")
 		if err != nil {
@@ -312,17 +316,9 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 	logger.Info("reconciled vapp", "id", vApp.VApp.ID)
 
-	if tenantCluster.Status.VAppID != vApp.VApp.ID {
-		patch := client.MergeFrom(tenantCluster.DeepCopy())
-
-		tenantCluster.Status.VAppID = vApp.VApp.ID
-
-		err := r.Status().Patch(ctx, &tenantCluster, patch)
-		if err != nil {
-			logger.Error(err, "error patching cluster")
-
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
+	tenantCluster.Status.VApp = &tenantv1.CloudDirectorReference{
+		ID:   vApp.VApp.ID,
+		Name: vApp.VApp.Name,
 	}
 
 	if !tenantCluster.Status.Ready {
@@ -349,75 +345,93 @@ func (r *CloudDirectorTenantClusterReconciler) reconcileDelete(ctx context.Conte
 		return ctrl.Result{}, err
 	}
 
-	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Org)
+	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	vdc, err := org.GetVDCByName(tenantCluster.Spec.VDC, false)
+	vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, false)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	virtualService, err := vcdClient.GetAlbVirtualServiceById(tenantCluster.Status.LoadBalancerVirtualServiceID)
-	if vcdutil.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !govcd.ContainsNotFound(err) {
-		err := virtualService.Delete()
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	albPool, err := vcdClient.GetAlbPoolById(tenantCluster.Status.AlbPoolID)
-	if vcdutil.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !govcd.ContainsNotFound(err) {
-		err := albPool.Delete()
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	firewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.FirewallGroupID)
-	if vcdutil.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !govcd.ContainsNotFound(err) {
-		if len(firewallGroup.NsxtFirewallGroup.IpAddresses) > 0 {
-			logger.Info("ignoring cluster with ip addresses in firewall group")
-
-			return ctrl.Result{}, nil
-		}
-
-		err := firewallGroup.Delete()
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	vApp, err := vdc.GetVAppById(tenantCluster.Status.VAppID, false)
-	if vcdutil.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !govcd.ContainsNotFound(err) {
-		if vApp.VApp.Children != nil {
-			logger.Info("vapp", "children", len(vApp.VApp.Children.VM))
-		}
-
-		status, err := vApp.GetStatus()
-		if err != nil {
+	if tenantCluster.Status.VirtualService != nil {
+		virtualService, err := vcdClient.GetAlbVirtualServiceById(tenantCluster.Status.VirtualService.ID)
+		if vcdutil.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
 
-		if status != "POWERED_OFF" {
-			task, err := vApp.Undeploy()
+		if !govcd.ContainsNotFound(err) {
+			err := virtualService.Delete()
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	if tenantCluster.Status.Pool != nil {
+		albPool, err := vcdClient.GetAlbPoolById(tenantCluster.Status.Pool.ID)
+		if vcdutil.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
+		}
+
+		if !govcd.ContainsNotFound(err) {
+			err := albPool.Delete()
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	if tenantCluster.Status.IPSet != nil {
+		firewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
+		if vcdutil.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
+		}
+
+		if !govcd.ContainsNotFound(err) {
+			if len(firewallGroup.NsxtFirewallGroup.IpAddresses) > 0 {
+				logger.Info("ignoring cluster with ip addresses in firewall group")
+
+				return ctrl.Result{}, nil
+			}
+
+			err := firewallGroup.Delete()
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	if tenantCluster.Status.VApp != nil {
+		vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, false)
+		if vcdutil.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
+		}
+
+		if !govcd.ContainsNotFound(err) {
+			if vApp.VApp.Children != nil {
+				logger.Info("vapp", "children", len(vApp.VApp.Children.VM))
+			}
+
+			status, err := vApp.GetStatus()
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			if status != "POWERED_OFF" {
+				task, err := vApp.Undeploy()
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+
+				err = task.WaitTaskCompletion()
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+
+			task, err := vApp.Delete()
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -426,16 +440,6 @@ func (r *CloudDirectorTenantClusterReconciler) reconcileDelete(ctx context.Conte
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-		}
-
-		task, err := vApp.Delete()
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		err = task.WaitTaskCompletion()
-		if err != nil {
-			return ctrl.Result{}, err
 		}
 	}
 

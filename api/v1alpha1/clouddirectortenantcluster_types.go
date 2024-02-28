@@ -13,21 +13,27 @@ type CloudDirectorTenantClusterSpec struct {
 	// +optional
 	ControlPlaneEndpoint v1beta1.APIEndpoint `json:"controlPlaneEndpoint"`
 
-	Org         string `json:"org"`
-	VDC         string `json:"vdc"`
-	EdgeGateway string `json:"edgeGateway"`
-	Network     string `json:"network"`
+	Organization      string `json:"organization"`
+	VirtualDataCenter string `json:"virtualDataCenter"`
+	EdgeGateway       string `json:"edgeGateway"`
+	Network           string `json:"network"`
 
 	IdentityRef *CloudDirectorTenantIdentityRef `json:"identityRef,omitempty"`
 }
 
+type CloudDirectorReference struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type CloudDirectorTenantClusterStatus struct {
 	// +kubebuilder:default=false
-	Ready                        bool   `json:"ready"`
-	LoadBalancerVirtualServiceID string `json:"loadBalancerVirtualServiceID,omitempty"`
-	VAppID                       string `json:"vAppID,omitempty"`
-	FirewallGroupID              string `json:"firewallGroupID,omitempty"`
-	AlbPoolID                    string `json:"albPoolID,omitempty"`
+	Ready bool `json:"ready"`
+
+	VirtualService *CloudDirectorReference `json:"virtualService,omitempty"`
+	VApp           *CloudDirectorReference `json:"vApp,omitempty"`
+	IPSet          *CloudDirectorReference `json:"ipSet,omitempty"`
+	Pool           *CloudDirectorReference `json:"pool,omitempty"`
 }
 
 // +kubebuilder:object:root=true

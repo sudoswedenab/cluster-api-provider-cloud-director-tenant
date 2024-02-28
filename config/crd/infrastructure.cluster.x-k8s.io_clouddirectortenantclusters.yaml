@@ -60,29 +60,61 @@ spec:
                 type: object
               network:
                 type: string
-              org:
+              organization:
                 type: string
-              vdc:
+              virtualDataCenter:
                 type: string
             required:
             - edgeGateway
             - network
-            - org
-            - vdc
+            - organization
+            - virtualDataCenter
             type: object
           status:
             properties:
-              albPoolID:
-                type: string
-              firewallGroupID:
-                type: string
-              loadBalancerVirtualServiceID:
-                type: string
+              ipSet:
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - id
+                - name
+                type: object
+              pool:
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - id
+                - name
+                type: object
               ready:
                 default: false
                 type: boolean
-              vAppID:
-                type: string
+              vApp:
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - id
+                - name
+                type: object
+              virtualService:
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - id
+                - name
+                type: object
             required:
             - ready
             type: object

@@ -40,7 +40,7 @@ func GetVCDClientFromTenantCluster(ctx context.Context, c client.Client, tenantC
 	}
 
 	vcdClient := govcd.NewVCDClient(*u, false)
-	err = vcdClient.SetToken(tenantCluster.Spec.Org, govcd.ApiTokenHeader, string(token))
+	err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
 	if err != nil {
 
 		return nil, err
