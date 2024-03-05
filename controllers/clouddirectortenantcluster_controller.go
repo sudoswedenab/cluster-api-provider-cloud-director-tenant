@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -22,7 +23,8 @@ import (
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantclusters,verbs=get;list;patch;watch
-// +kuberuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantclusters/status,verbs=patch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 
 const (
 	CloudDirectorTenantClusterFinalizer = "cloud-director-tenant.infrastructure.cluster.x-k8s.io/finalizer"
@@ -48,16 +50,19 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		return r.reconcileDelete(ctx, &tenantCluster)
 	}
 
-	if !controllerutil.ContainsFinalizer(&tenantCluster, CloudDirectorTenantClusterFinalizer) {
-		patch := client.MergeFrom(tenantCluster.DeepCopy())
+	patchHelper, err := patch.NewHelper(&tenantCluster, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-		controllerutil.AddFinalizer(&tenantCluster, CloudDirectorTenantClusterFinalizer)
-
-		err := r.Patch(ctx, &tenantCluster, patch)
+	defer func() {
+		err := patchHelper.Patch(ctx, &tenantCluster)
 		if err != nil {
-			return ctrl.Result{}, err
+			panic(err)
 		}
+	}()
 
+	if controllerutil.AddFinalizer(&tenantCluster, CloudDirectorTenantClusterFinalizer) {
 		return ctrl.Result{}, nil
 	}
 
@@ -158,7 +163,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error creating nsxt firewall group")
 
-			return CloudDirectorTenantMachineRequeue, nil
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
 
@@ -443,14 +448,7 @@ func (r *CloudDirectorTenantClusterReconciler) reconcileDelete(ctx context.Conte
 		}
 	}
 
-	patch := client.MergeFrom(tenantCluster.DeepCopy())
-
-	if controllerutil.RemoveFinalizer(tenantCluster, CloudDirectorTenantClusterFinalizer) {
-		err := r.Patch(ctx, tenantCluster, patch)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	controllerutil.RemoveFinalizer(tenantCluster, CloudDirectorTenantClusterFinalizer)
 
 	return ctrl.Result{}, nil
 }
