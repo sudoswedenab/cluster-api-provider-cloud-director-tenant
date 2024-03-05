@@ -101,77 +101,42 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		Namespace: ownerCluster.Namespace,
 	}
 
-	var cloudDirectorTenantCluster v1alpha1.CloudDirectorTenantCluster
-	err = r.Get(ctx, objectKey, &cloudDirectorTenantCluster)
+	var tenantCluster v1alpha1.CloudDirectorTenantCluster
+	err = r.Get(ctx, objectKey, &tenantCluster)
 	if err != nil {
 		logger.Error(err, "error getting cloud director cluster")
 
 		return ctrl.Result{}, err
 	}
 
-	if cloudDirectorTenantCluster.Spec.IdentityRef == nil {
+	if tenantCluster.Spec.IdentityRef == nil {
 		logger.Info("ignoring owner cluster without identity reference")
 
 		return ctrl.Result{}, nil
 	}
 
-	objectKey = client.ObjectKey{
-		Name:      cloudDirectorTenantCluster.Spec.IdentityRef.Name,
-		Namespace: cloudDirectorTenantCluster.Namespace,
-	}
-
-	var secret corev1.Secret
-	err = r.Get(ctx, objectKey, &secret)
+	vcdClient, err := vcdutil.GetVCDClientFromTenantCluster(ctx, r.Client, &tenantCluster)
 	if err != nil {
-		logger.Error(err, "error getting identity secret")
+		logger.Error(err, "error getting client")
 
 		return ctrl.Result{}, err
 	}
 
-	vcdURL, has := secret.Data["vcdEndpoint"]
-	if !has {
-		logger.Info("ignoring cluster without vcd endpoint")
-
-		return ctrl.Result{}, nil
-	}
-
-	token, has := secret.Data["apiToken"]
-	if !has {
-		logger.Info("ignoring cluster without api token")
-
-		return ctrl.Result{}, nil
-	}
-
-	u, err := url.Parse(string(vcdURL))
-	if err != nil {
-		logger.Error(err, "error parsing vcd endpoint url")
-
-		return ctrl.Result{}, err
-	}
-
-	vcdClient := govcd.NewVCDClient(*u, false)
-	err = vcdClient.SetToken(cloudDirectorTenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
-	if err != nil {
-		logger.Error(err, "error setting token")
-
-		return ctrl.Result{}, err
-	}
-
-	org, err := vcdClient.GetOrgByName(cloudDirectorTenantCluster.Spec.Organization)
+	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
 	if err != nil {
 		logger.Error(err, "error getting org")
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	vdc, err := org.GetVDCByName(cloudDirectorTenantCluster.Spec.VirtualDataCenter, true)
+	vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, true)
 	if err != nil {
 		logger.Error(err, "error getting vdc")
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	vApp, err := vdc.GetVAppById(cloudDirectorTenantCluster.Status.VApp.ID, true)
+	vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
 	if err != nil {
 		logger.Error(err, "error getting vapp")
 
@@ -200,7 +165,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			networkConnectionSection := types.NetworkConnectionSection{
 				NetworkConnection: []*types.NetworkConnection{
 					{
-						Network:                 cloudDirectorTenantCluster.Spec.Network,
+						Network:                 tenantCluster.Spec.Network,
 						NetworkConnectionIndex:  0,
 						IsConnected:             true,
 						IPAddressAllocationMode: types.IPAllocationModePool,
@@ -255,7 +220,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 
-		vAppNetwork, err := vApp.GetVappNetworkByName(cloudDirectorTenantCluster.Spec.Network, true)
+		vAppNetwork, err := vApp.GetVappNetworkByName(tenantCluster.Spec.Network, true)
 		if err != nil {
 			logger.Error(err, "error getting vapp network")
 
@@ -426,9 +391,9 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	}
 
 	if util.IsControlPlaneMachine(ownerMachine) {
-		logger.Info("owner machine is control plane", "cluster", cloudDirectorTenantCluster.Name)
+		logger.Info("owner machine is control plane", "cluster", tenantCluster.Name)
 
-		nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(cloudDirectorTenantCluster.Status.IPSet.ID)
+		nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
 		if err != nil {
 			logger.Error(err, "errora getting nsxt firewall group")
 
@@ -477,8 +442,8 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 		Namespace: ownerCluster.Namespace,
 	}
 
-	var cloudDirectorTenantCluster v1alpha1.CloudDirectorTenantCluster
-	err := r.Get(ctx, objectKey, &cloudDirectorTenantCluster)
+	var tenantCluster v1alpha1.CloudDirectorTenantCluster
+	err := r.Get(ctx, objectKey, &tenantCluster)
 	if err != nil {
 		logger.Error(err, "error getting cloud director cluster")
 
@@ -486,8 +451,8 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 	}
 
 	objectKey = client.ObjectKey{
-		Name:      cloudDirectorTenantCluster.Spec.IdentityRef.Name,
-		Namespace: cloudDirectorTenantCluster.Namespace,
+		Name:      tenantCluster.Spec.IdentityRef.Name,
+		Namespace: tenantCluster.Namespace,
 	}
 
 	var secret corev1.Secret
@@ -520,21 +485,21 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 	}
 
 	vcdClient := govcd.NewVCDClient(*u, false)
-	err = vcdClient.SetToken(cloudDirectorTenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
+	err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
 	if err != nil {
 		logger.Error(err, "error setting token")
 
 		return ctrl.Result{}, err
 	}
 
-	org, err := vcdClient.GetOrgByName(cloudDirectorTenantCluster.Spec.Organization)
+	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
 	if err != nil {
 		logger.Error(err, "error getting org")
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	vdc, err := org.GetVDCByName(cloudDirectorTenantCluster.Spec.VirtualDataCenter, true)
+	vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, true)
 	if err != nil {
 		logger.Error(err, "error getting vdc")
 
@@ -554,7 +519,7 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 		if internalIPAdress != "" {
 			logger.Info("removing machine address from firewall group", "address", internalIPAdress)
 
-			nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(cloudDirectorTenantCluster.Status.IPSet.ID)
+			nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
 			if err != nil {
 				logger.Error(err, "error getting nsxt firewall group")
 
@@ -574,7 +539,7 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 		}
 	}
 
-	vApp, err := vdc.GetVAppById(cloudDirectorTenantCluster.Status.VApp.ID, true)
+	vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
 	if err != nil {
 		logger.Error(err, "error getting vapp")
 
