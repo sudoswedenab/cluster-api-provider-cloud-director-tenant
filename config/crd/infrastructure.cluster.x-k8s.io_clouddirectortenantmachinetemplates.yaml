@@ -78,8 +78,23 @@ spec:
                     type: object
                   spec:
                     properties:
+                      additionalDisks:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            sizeMiB:
+                              format: int64
+                              type: integer
+                          required:
+                          - sizeMiB
+                          type: object
+                        type: array
                       catalog:
                         type: string
+                      diskResourceMiB:
+                        format: int64
+                        type: integer
                       memoryResourceMiB:
                         format: int64
                         type: integer

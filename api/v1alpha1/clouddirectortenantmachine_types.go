@@ -11,9 +11,11 @@ type CloudDirectorTenantMachineSpec struct {
 	Catalog  string `json:"catalog"`
 	Template string `json:"template"`
 
-	NetworkAdapterType string `json:"networkAdapterType,omitempty"`
-	MemoryResourceMiB  int64  `json:"memoryResourceMiB,omitempty"`
-	NumCPUs            int    `json:"numCPUs,omitempty"`
+	NetworkAdapterType string           `json:"networkAdapterType,omitempty"`
+	MemoryResourceMiB  int64            `json:"memoryResourceMiB,omitempty"`
+	NumCPUs            int              `json:"numCPUs,omitempty"`
+	DiskResourceMiB    int64            `json:"diskResourceMiB,omitempty"`
+	AdditionalDisks    []AdditionalDisk `json:"additionalDisks,omitempty"`
 }
 
 type CloudDirectorTenantMachineStatus struct {
