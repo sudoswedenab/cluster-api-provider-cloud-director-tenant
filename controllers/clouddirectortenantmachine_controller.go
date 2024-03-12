@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
 	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/cloudinit"
 	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/vcdutil"
 	"github.com/vmware/go-vcloud-director/v2/govcd"
@@ -37,7 +37,7 @@ type CloudDirectorTenantMachineReconciler struct {
 func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	var cloudDirectorTenantMachine v1alpha1.CloudDirectorTenantMachine
+	var cloudDirectorTenantMachine tenantv1.CloudDirectorTenantMachine
 	err := r.Get(ctx, req.NamespacedName, &cloudDirectorTenantMachine)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -101,7 +101,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		Namespace: ownerCluster.Namespace,
 	}
 
-	var tenantCluster v1alpha1.CloudDirectorTenantCluster
+	var tenantCluster tenantv1.CloudDirectorTenantCluster
 	err = r.Get(ctx, objectKey, &tenantCluster)
 	if err != nil {
 		logger.Error(err, "error getting cloud director cluster")
@@ -312,7 +312,6 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 		vmSpecSection := vm.VM.VmSpecSection
 
-		vmSpecSection.DiskSection = nil
 		needsUpdate := false
 
 		if cloudDirectorTenantMachine.Spec.MemoryResourceMiB != 0 {
@@ -325,6 +324,13 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 		if cloudDirectorTenantMachine.Spec.NumCPUs != 0 && *vmSpecSection.NumCpus != cloudDirectorTenantMachine.Spec.NumCPUs {
 			vmSpecSection.NumCpus = &cloudDirectorTenantMachine.Spec.NumCPUs
+
+			needsUpdate = true
+		}
+
+		diskSection := diskSectionFromTenantMachine(vmSpecSection.DiskSection, &cloudDirectorTenantMachine)
+		if diskSection != nil {
+			vmSpecSection.DiskSection = diskSection
 
 			needsUpdate = true
 		}
@@ -434,7 +440,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	return ctrl.Result{}, nil
 }
 
-func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Context, cloudDirectorTenantMachine *v1alpha1.CloudDirectorTenantMachine, ownerMachine *clusterv1.Machine, ownerCluster *clusterv1.Cluster) (ctrl.Result, error) {
+func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Context, cloudDirectorTenantMachine *tenantv1.CloudDirectorTenantMachine, ownerMachine *clusterv1.Machine, ownerCluster *clusterv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	objectKey := client.ObjectKey{
@@ -442,7 +448,7 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 		Namespace: ownerCluster.Namespace,
 	}
 
-	var tenantCluster v1alpha1.CloudDirectorTenantCluster
+	var tenantCluster tenantv1.CloudDirectorTenantCluster
 	err := r.Get(ctx, objectKey, &tenantCluster)
 	if err != nil {
 		logger.Error(err, "error getting cloud director cluster")
@@ -574,13 +580,51 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 	return ctrl.Result{}, nil
 }
 
+func diskSectionFromTenantMachine(existing *types.DiskSection, tenantMachine *tenantv1.CloudDirectorTenantMachine) *types.DiskSection {
+	if tenantMachine.Spec.DiskResourceMiB == 0 && len(tenantMachine.Spec.AdditionalDisks) == 0 {
+		return nil
+	}
+
+	diskSection := types.DiskSection{
+		DiskSettings: []*types.DiskSettings{},
+	}
+
+	if tenantMachine.Spec.DiskResourceMiB > 0 {
+		diskSettings := existing.DiskSettings[0]
+
+		diskSettings.SizeMb = tenantMachine.Spec.DiskResourceMiB
+
+		diskSection.DiskSettings = append(diskSection.DiskSettings, diskSettings)
+	}
+
+	busNumber := existing.DiskSettings[0].BusNumber
+	adapterType := existing.DiskSettings[0].AdapterType
+
+	for i, additionalDisk := range tenantMachine.Spec.AdditionalDisks {
+		unitNumber := existing.DiskSettings[0].UnitNumber + i + 1
+		thinProvisioned := true
+
+		diskSettings := types.DiskSettings{
+			AdapterType:     adapterType,
+			BusNumber:       busNumber,
+			UnitNumber:      unitNumber,
+			SizeMb:          additionalDisk.SizeMiB,
+			ThinProvisioned: &thinProvisioned,
+		}
+
+		diskSection.DiskSettings = append(diskSection.DiskSettings, &diskSettings)
+	}
+
+	return &diskSection
+}
+
 func (r *CloudDirectorTenantMachineReconciler) SetupWithManager(manager ctrl.Manager) error {
 	scheme := manager.GetScheme()
 
-	_ = v1alpha1.AddToScheme(scheme)
+	_ = tenantv1.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
 
-	err := ctrl.NewControllerManagedBy(manager).For(&v1alpha1.CloudDirectorTenantMachine{}).Complete(r)
+	err := ctrl.NewControllerManagedBy(manager).For(&tenantv1.CloudDirectorTenantMachine{}).Complete(r)
 	if err != nil {
 		return err
 	}
