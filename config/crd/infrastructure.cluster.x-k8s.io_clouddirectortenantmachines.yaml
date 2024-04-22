@@ -14,7 +14,11 @@ spec:
     singular: clouddirectortenantmachine
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         properties:
