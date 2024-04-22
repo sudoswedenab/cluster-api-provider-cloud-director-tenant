@@ -110,6 +110,14 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
+	if !util.IsControlPlaneMachine(ownerMachine) && !conditions.IsTrue(ownerCluster, clusterv1.ControlPlaneInitializedCondition) {
+		logger.Info("ignoring machine until control plane is initialized")
+
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, clusterv1.WaitingForControlPlaneProviderInitializedReason, clusterv1.ConditionSeverityInfo, "")
+
+		return ctrl.Result{}, nil
+	}
+
 	objectKey := client.ObjectKey{
 		Name:      ownerCluster.Spec.InfrastructureRef.Name,
 		Namespace: ownerCluster.Namespace,
