@@ -14,12 +14,20 @@ import (
 	"github.com/vmware/go-vcloud-director/v2/govcd"
 	types "github.com/vmware/go-vcloud-director/v2/types/v56"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
+
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantmachines,verbs=get;list;patch;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantmachines/status,verbs=patch
 
 const (
 	CloudDirectorTenantMachineFinalizer = "clouddirectortenant.infrastructure.cluster.x-k8s.io/finalizer"
@@ -34,18 +42,18 @@ type CloudDirectorTenantMachineReconciler struct {
 	Logger *slog.Logger
 }
 
-func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	var cloudDirectorTenantMachine tenantv1.CloudDirectorTenantMachine
-	err := r.Get(ctx, req.NamespacedName, &cloudDirectorTenantMachine)
+	var tenantMachine tenantv1.CloudDirectorTenantMachine
+	err := r.Get(ctx, req.NamespacedName, &tenantMachine)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	logger.Info("reconcile cloud director machine")
 
-	ownerMachine, err := util.GetOwnerMachine(ctx, r.Client, cloudDirectorTenantMachine.ObjectMeta)
+	ownerMachine, err := util.GetOwnerMachine(ctx, r.Client, tenantMachine.ObjectMeta)
 	if err != nil {
 		logger.Error(err, "error getting owner machine")
 
@@ -65,33 +73,39 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		return ctrl.Result{}, err
 	}
 
-	if !cloudDirectorTenantMachine.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, &cloudDirectorTenantMachine, ownerMachine, ownerCluster)
+	patchHelper, err := patch.NewHelper(&tenantMachine, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	if !controllerutil.ContainsFinalizer(&cloudDirectorTenantMachine, CloudDirectorTenantMachineFinalizer) {
-		patch := client.MergeFrom(cloudDirectorTenantMachine.DeepCopy())
-
-		if controllerutil.AddFinalizer(&cloudDirectorTenantMachine, CloudDirectorTenantMachineFinalizer) {
-			err := r.Patch(ctx, &cloudDirectorTenantMachine, patch)
-			if err != nil {
-				logger.Error(err, "error patching finalizer")
-
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, nil
+	defer func() {
+		err := patchTenantMachine(ctx, patchHelper, &tenantMachine, ownerMachine)
+		if err != nil {
+			result = ctrl.Result{}
+			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
+	}()
+
+	if !tenantMachine.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, &tenantMachine, ownerMachine, ownerCluster)
+	}
+
+	if controllerutil.AddFinalizer(&tenantMachine, CloudDirectorTenantMachineFinalizer) {
+		return ctrl.Result{}, nil
 	}
 
 	if !ownerCluster.Status.InfrastructureReady {
 		logger.Info("owner cluster does not have infrastructure ready")
+
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.WaitingForClusterInfrastructureReason, clusterv1.ConditionSeverityInfo, "")
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
 	if ownerMachine.Spec.Bootstrap.DataSecretName == nil {
 		logger.Info("owner machine has no bootstrap data secret name")
+
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.WaitingForBootstrapDataReason, clusterv1.ConditionSeverityInfo, "")
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -119,12 +133,16 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting client")
 
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
 		return ctrl.Result{}, err
 	}
 
 	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
 	if err != nil {
 		logger.Error(err, "error getting org")
+
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -133,6 +151,8 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting vdc")
 
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
@@ -140,26 +160,40 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting vapp")
 
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	if cloudDirectorTenantMachine.Spec.ProviderID == "" {
+	if tenantMachine.Spec.ProviderID == "" {
 		logger.Info("no provider id")
 
-		catalog, err := org.GetCatalogByName(cloudDirectorTenantMachine.Spec.Catalog, true)
-		if err != nil {
-			logger.Error(err, "error getting catalog", "catalog", cloudDirectorTenantMachine.Spec.Catalog)
+		catalog, err := org.GetCatalogByName(tenantMachine.Spec.Catalog, true)
+		if vcdutil.IgnoreNotFound(err) != nil {
+			logger.Error(err, "error getting catalog", "catalog", tenantMachine.Spec.Catalog)
+
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 
-		vm, err := vApp.GetVMByName(cloudDirectorTenantMachine.Name, true)
 		if govcd.ContainsNotFound(err) {
-			vAppTemplate, err := catalog.GetVAppTemplateByName(cloudDirectorTenantMachine.Spec.Template)
-			if err != nil {
-				logger.Error(err, "error getting vapp template")
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CatalogNotFoundReason, clusterv1.ConditionSeverityInfo, "")
+
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+
+		vm, err := vApp.GetVMByName(tenantMachine.Name, true)
+		if govcd.ContainsNotFound(err) {
+			vAppTemplate, err := catalog.GetVAppTemplateByName(tenantMachine.Spec.Template)
+			if vcdutil.IgnoreNotFound(err) != nil {
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
+
+			if govcd.ContainsNotFound(err) {
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.TemplateNotFoundReason, clusterv1.ConditionSeverityInfo, "")
 			}
 
 			networkConnectionSection := types.NetworkConnectionSection{
@@ -169,14 +203,14 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 						NetworkConnectionIndex:  0,
 						IsConnected:             true,
 						IPAddressAllocationMode: types.IPAllocationModePool,
-						NetworkAdapterType:      cloudDirectorTenantMachine.Spec.NetworkAdapterType,
+						NetworkAdapterType:      tenantMachine.Spec.NetworkAdapterType,
 					},
 				},
 			}
 
-			task, err := vApp.AddNewVM(cloudDirectorTenantMachine.Name, *vAppTemplate, &networkConnectionSection, false)
+			task, err := vApp.AddNewVM(tenantMachine.Name, *vAppTemplate, &networkConnectionSection, false)
 			if err != nil {
-				logger.Error(err, "error adding new vm")
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -190,9 +224,11 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 			logger.Info("add new vm task completed", "id", task.Task.ID)
 
-			vm, err = vApp.GetVMByName(cloudDirectorTenantMachine.Name, true)
+			vm, err = vApp.GetVMByName(tenantMachine.Name, true)
 			if err != nil {
 				logger.Error(err, "error getting new vm by name")
+
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -227,8 +263,6 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 
-		// fmt.Printf("vappnetwrk: %#v\n,configuration: %#v\nipscopes: %#v", vAppNetwork, vAppNetwork.Configuration, vAppNetwork.Configuration.IPScopes)
-
 		networkConnectionSection, err := vm.GetNetworkConnectionSection()
 		if err != nil {
 			logger.Error(err, "error getting vm network connection section")
@@ -250,7 +284,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			return CloudDirectorTenantMachineRequeue, nil
 		}
 
-		guestCustomizationSection.ComputerName = cloudDirectorTenantMachine.Name
+		guestCustomizationSection.ComputerName = tenantMachine.Name
 
 		_, err = vm.SetGuestCustomizationSection(guestCustomizationSection)
 		if err != nil {
@@ -314,21 +348,21 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 		needsUpdate := false
 
-		if cloudDirectorTenantMachine.Spec.MemoryResourceMiB != 0 {
-			if vmSpecSection.MemoryResourceMb.Configured != cloudDirectorTenantMachine.Spec.MemoryResourceMiB {
-				vmSpecSection.MemoryResourceMb.Configured = cloudDirectorTenantMachine.Spec.MemoryResourceMiB
+		if tenantMachine.Spec.MemoryResourceMiB != 0 {
+			if vmSpecSection.MemoryResourceMb.Configured != tenantMachine.Spec.MemoryResourceMiB {
+				vmSpecSection.MemoryResourceMb.Configured = tenantMachine.Spec.MemoryResourceMiB
 
 				needsUpdate = true
 			}
 		}
 
-		if cloudDirectorTenantMachine.Spec.NumCPUs != 0 && *vmSpecSection.NumCpus != cloudDirectorTenantMachine.Spec.NumCPUs {
-			vmSpecSection.NumCpus = &cloudDirectorTenantMachine.Spec.NumCPUs
+		if tenantMachine.Spec.NumCPUs != 0 && *vmSpecSection.NumCpus != tenantMachine.Spec.NumCPUs {
+			vmSpecSection.NumCpus = &tenantMachine.Spec.NumCPUs
 
 			needsUpdate = true
 		}
 
-		diskSection := diskSectionFromTenantMachine(vmSpecSection.DiskSection, &cloudDirectorTenantMachine)
+		diskSection := diskSectionFromTenantMachine(vmSpecSection.DiskSection, &tenantMachine)
 		if diskSection != nil {
 			vmSpecSection.DiskSection = diskSection
 
@@ -362,37 +396,18 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 		logger.Info("vm power on task completed", "id", task.Task.ID)
 
-		patch := client.MergeFrom(cloudDirectorTenantMachine.DeepCopy())
-
-		cloudDirectorTenantMachine.Spec.ProviderID = "vmware-cloud-director://" + vm.VM.ID
-
-		err = r.Patch(ctx, &cloudDirectorTenantMachine, patch)
-		if err != nil {
-			logger.Error(err, "error patching machine")
-
-			return ctrl.Result{}, err
-
-		}
+		tenantMachine.Spec.ProviderID = "vmware-cloud-director://" + vm.VM.ID
 
 		if networkConnectionSection.NetworkConnection != nil {
-			cloudDirectorTenantMachine.Status.Addresses = []clusterv1.MachineAddress{}
+			tenantMachine.Status.Addresses = []clusterv1.MachineAddress{}
 			for _, networkConnection := range networkConnectionSection.NetworkConnection {
 				address := clusterv1.MachineAddress{
 					Type:    clusterv1.MachineInternalIP,
 					Address: networkConnection.IPAddress,
 				}
 
-				cloudDirectorTenantMachine.Status.Addresses = append(cloudDirectorTenantMachine.Status.Addresses, address)
+				tenantMachine.Status.Addresses = append(tenantMachine.Status.Addresses, address)
 			}
-		}
-
-		cloudDirectorTenantMachine.Status.Ready = true
-
-		err = r.Status().Patch(ctx, &cloudDirectorTenantMachine, patch)
-		if err != nil {
-			logger.Error(err, "error patching machine status")
-
-			return ctrl.Result{}, err
 		}
 	}
 
@@ -403,11 +418,13 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "errora getting nsxt firewall group")
 
+			conditions.MarkFalse(&tenantMachine, tenantv1.LoadBalancerMemberCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
 			return CloudDirectorTenantMachineRequeue, nil
 		}
 
 		internalIPAddress := ""
-		for _, address := range cloudDirectorTenantMachine.Status.Addresses {
+		for _, address := range tenantMachine.Status.Addresses {
 			if address.Type == clusterv1.MachineInternalIP {
 				internalIPAddress = address.Address
 			}
@@ -432,150 +449,151 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			if err != nil {
 				logger.Error(err, "error updating firewall group")
 
+				conditions.MarkFalse(&tenantMachine, tenantv1.LoadBalancerMemberCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
+			}
+		}
+
+		conditions.MarkTrue(&tenantMachine, tenantv1.LoadBalancerMemberCondition)
+	}
+
+	conditions.MarkTrue(&tenantMachine, tenantv1.VirtualMachineReadyCondition)
+
+	tenantMachine.Status.Ready = true
+
+	return ctrl.Result{}, nil
+}
+
+func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Context, tenantMachine *tenantv1.CloudDirectorTenantMachine, ownerMachine *clusterv1.Machine, ownerCluster *clusterv1.Cluster) (ctrl.Result, error) {
+	logger := ctrl.LoggerFrom(ctx)
+
+	if ownerCluster.Spec.InfrastructureRef != nil {
+		objectKey := client.ObjectKey{
+			Name:      ownerCluster.Spec.InfrastructureRef.Name,
+			Namespace: ownerCluster.Namespace,
+		}
+
+		var tenantCluster tenantv1.CloudDirectorTenantCluster
+		err := r.Get(ctx, objectKey, &tenantCluster)
+		if err != nil {
+			logger.Error(err, "error getting cloud director cluster")
+
+			return ctrl.Result{}, err
+		}
+
+		objectKey = client.ObjectKey{
+			Name:      tenantCluster.Spec.IdentityRef.Name,
+			Namespace: tenantCluster.Namespace,
+		}
+
+		var secret corev1.Secret
+		err = r.Get(ctx, objectKey, &secret)
+		if err != nil {
+			logger.Error(err, "error getting identity secret")
+
+			return ctrl.Result{}, err
+		}
+
+		vcdURL, has := secret.Data["vcdEndpoint"]
+		if !has {
+			logger.Info("ignoring cluster without vcd endpoint")
+
+			return ctrl.Result{}, nil
+		}
+
+		token, has := secret.Data["apiToken"]
+		if !has {
+			logger.Info("ignoring cluster without api token")
+
+			return ctrl.Result{}, nil
+		}
+
+		u, err := url.Parse(string(vcdURL))
+		if err != nil {
+			logger.Error(err, "error parsing vcd endpoint url")
+
+			return ctrl.Result{}, err
+		}
+
+		vcdClient := govcd.NewVCDClient(*u, false)
+		err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
+		if err != nil {
+			logger.Error(err, "error setting token")
+
+			return ctrl.Result{}, err
+		}
+
+		org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
+		if err != nil {
+			logger.Error(err, "error getting org")
+
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+
+		vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, true)
+		if err != nil {
+			logger.Error(err, "error getting vdc")
+
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+
+		if util.IsControlPlaneMachine(ownerMachine) {
+			logger.Info("delete machine is control plane")
+
+			internalIPAdress := ""
+			for _, address := range tenantMachine.Status.Addresses {
+				if address.Type == clusterv1.MachineInternalIP {
+					internalIPAdress = address.Address
+				}
+			}
+
+			if internalIPAdress != "" {
+				logger.Info("removing machine address from firewall group", "address", internalIPAdress)
+
+				nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
+				if err != nil {
+					logger.Error(err, "error getting nsxt firewall group")
+
+					return CloudDirectorTenantMachineRequeue, nil
+				}
+
+				nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses = slices.DeleteFunc(nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses, func(ipAddress string) bool {
+					return ipAddress == internalIPAdress
+				})
+
+				_, err = nsxtFirewallGroup.Update(nsxtFirewallGroup.NsxtFirewallGroup)
+				if err != nil {
+					logger.Error(err, "error updating firewall group")
+
+					return CloudDirectorTenantMachineRequeue, nil
+				}
+			}
+		}
+
+		vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
+		if err != nil {
+			logger.Error(err, "error getting vapp")
+
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+
+		vm, err := vApp.GetVMByName(tenantMachine.Name, true)
+		if vcdutil.IgnoreNotFound(err) != nil {
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+
+		if !govcd.ContainsNotFound(err) {
+			err = vm.Delete()
+			if err != nil {
+				logger.Error(err, "error deleting vm")
+
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
 		}
 	}
 
-	return ctrl.Result{}, nil
-}
-
-func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Context, cloudDirectorTenantMachine *tenantv1.CloudDirectorTenantMachine, ownerMachine *clusterv1.Machine, ownerCluster *clusterv1.Cluster) (ctrl.Result, error) {
-	logger := ctrl.LoggerFrom(ctx)
-
-	objectKey := client.ObjectKey{
-		Name:      ownerCluster.Spec.InfrastructureRef.Name,
-		Namespace: ownerCluster.Namespace,
-	}
-
-	var tenantCluster tenantv1.CloudDirectorTenantCluster
-	err := r.Get(ctx, objectKey, &tenantCluster)
-	if err != nil {
-		logger.Error(err, "error getting cloud director cluster")
-
-		return ctrl.Result{}, err
-	}
-
-	objectKey = client.ObjectKey{
-		Name:      tenantCluster.Spec.IdentityRef.Name,
-		Namespace: tenantCluster.Namespace,
-	}
-
-	var secret corev1.Secret
-	err = r.Get(ctx, objectKey, &secret)
-	if err != nil {
-		logger.Error(err, "error getting identity secret")
-
-		return ctrl.Result{}, err
-	}
-
-	vcdURL, has := secret.Data["vcdEndpoint"]
-	if !has {
-		logger.Info("ignoring cluster without vcd endpoint")
-
-		return ctrl.Result{}, nil
-	}
-
-	token, has := secret.Data["apiToken"]
-	if !has {
-		logger.Info("ignoring cluster without api token")
-
-		return ctrl.Result{}, nil
-	}
-
-	u, err := url.Parse(string(vcdURL))
-	if err != nil {
-		logger.Error(err, "error parsing vcd endpoint url")
-
-		return ctrl.Result{}, err
-	}
-
-	vcdClient := govcd.NewVCDClient(*u, false)
-	err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
-	if err != nil {
-		logger.Error(err, "error setting token")
-
-		return ctrl.Result{}, err
-	}
-
-	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
-	if err != nil {
-		logger.Error(err, "error getting org")
-
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-
-	vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, true)
-	if err != nil {
-		logger.Error(err, "error getting vdc")
-
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-
-	if util.IsControlPlaneMachine(ownerMachine) {
-		logger.Info("delete machine is control plane")
-
-		internalIPAdress := ""
-		for _, address := range cloudDirectorTenantMachine.Status.Addresses {
-			if address.Type == clusterv1.MachineInternalIP {
-				internalIPAdress = address.Address
-			}
-		}
-
-		if internalIPAdress != "" {
-			logger.Info("removing machine address from firewall group", "address", internalIPAdress)
-
-			nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
-			if err != nil {
-				logger.Error(err, "error getting nsxt firewall group")
-
-				return CloudDirectorTenantMachineRequeue, nil
-			}
-
-			nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses = slices.DeleteFunc(nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses, func(ipAddress string) bool {
-				return ipAddress == internalIPAdress
-			})
-
-			_, err = nsxtFirewallGroup.Update(nsxtFirewallGroup.NsxtFirewallGroup)
-			if err != nil {
-				logger.Error(err, "error updating firewall group")
-
-				return CloudDirectorTenantMachineRequeue, nil
-			}
-		}
-	}
-
-	vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
-	if err != nil {
-		logger.Error(err, "error getting vapp")
-
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-
-	vm, err := vApp.GetVMByName(cloudDirectorTenantMachine.Name, true)
-	if vcdutil.IgnoreNotFound(err) != nil {
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-
-	if !govcd.ContainsNotFound(err) {
-		err = vm.Delete()
-		if err != nil {
-			logger.Error(err, "error deleting vm")
-
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
-	}
-
-	patch := client.MergeFrom(cloudDirectorTenantMachine.DeepCopy())
-
-	if controllerutil.RemoveFinalizer(cloudDirectorTenantMachine, CloudDirectorTenantMachineFinalizer) {
-		err := r.Patch(ctx, cloudDirectorTenantMachine, patch)
-		if err != nil {
-			logger.Error(err, "error patching finalizer")
-
-			return ctrl.Result{}, err
-		}
-	}
+	controllerutil.RemoveFinalizer(tenantMachine, CloudDirectorTenantMachineFinalizer)
 
 	return ctrl.Result{}, nil
 }
@@ -630,4 +648,26 @@ func (r *CloudDirectorTenantMachineReconciler) SetupWithManager(manager ctrl.Man
 	}
 
 	return nil
+}
+
+func patchTenantMachine(ctx context.Context, patchHelper *patch.Helper, tenantMachine *tenantv1.CloudDirectorTenantMachine, machine *clusterv1.Machine, opts ...patch.Option) error {
+	summaryConditions := []clusterv1.ConditionType{
+		tenantv1.VirtualMachineReadyCondition,
+	}
+
+	if util.IsControlPlaneMachine(machine) {
+		summaryConditions = append(summaryConditions, tenantv1.LoadBalancerMemberCondition)
+	}
+
+	conditions.SetSummary(tenantMachine, conditions.WithConditions(summaryConditions...))
+
+	opts = append(opts, patch.WithOwnedConditions{
+		Conditions: []clusterv1.ConditionType{
+			clusterv1.ReadyCondition,
+			tenantv1.VirtualMachineReadyCondition,
+			tenantv1.LoadBalancerMemberCondition,
+		},
+	})
+
+	return patchHelper.Patch(ctx, tenantMachine, opts...)
 }

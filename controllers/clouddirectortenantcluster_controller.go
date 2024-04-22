@@ -12,8 +12,10 @@ import (
 	"github.com/vmware/go-vcloud-director/v2/govcd"
 	typesv56 "github.com/vmware/go-vcloud-director/v2/types/v56"
 	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantclusters,verbs=get;list;patch;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantclusters/status,verbs=patch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 
 const (
 	CloudDirectorTenantClusterFinalizer = "cloud-director-tenant.infrastructure.cluster.x-k8s.io/finalizer"
@@ -35,7 +37,7 @@ type CloudDirectorTenantClusterReconciler struct {
 	Logger *slog.Logger
 }
 
-func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	var tenantCluster tenantv1.CloudDirectorTenantCluster
@@ -46,21 +48,22 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 	logger.Info("reconcile cluster")
 
-	if !tenantCluster.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, &tenantCluster)
-	}
-
 	patchHelper, err := patch.NewHelper(&tenantCluster, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	defer func() {
-		err := patchHelper.Patch(ctx, &tenantCluster)
+		err := patchTenantCluster(ctx, patchHelper, &tenantCluster)
 		if err != nil {
-			panic(err)
+			result = ctrl.Result{}
+			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 	}()
+
+	if !tenantCluster.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, &tenantCluster)
+	}
 
 	if controllerutil.AddFinalizer(&tenantCluster, CloudDirectorTenantClusterFinalizer) {
 		return ctrl.Result{}, nil
@@ -71,12 +74,6 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		logger.Error(err, "error getting owner cluster")
 
 		return ctrl.Result{}, err
-	}
-
-	if ownerCluster == nil {
-		logger.Info("ignoring cloud director cluster without cluster owner")
-
-		return ctrl.Result{}, nil
 	}
 
 	if tenantCluster.Spec.IdentityRef == nil {
@@ -120,22 +117,23 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error getting unused ip addresses")
 
+			conditions.MarkFalse(&tenantCluster, tenantv1.ExternalIPAddressReady, tenantv1.ExternalIPAddressGetUnusedFailedReason, clusterv1.ConditionSeverityError, err.Error())
+
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
-
-		patch := client.MergeFrom(tenantCluster.DeepCopy())
 
 		tenantCluster.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{
 			Host: addrs[0].String(),
 			Port: int32(6443),
 		}
 
-		err = r.Patch(ctx, &tenantCluster, patch)
-		if err != nil {
-			logger.Error(err, "error patching cluster")
+		conditions.MarkTrue(&tenantCluster, tenantv1.ExternalIPAddressReady)
 
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
+		return ctrl.Result{}, nil
+	}
+
+	if ownerCluster == nil {
+		logger.Info("ignoring cloud director cluster without cluster owner")
 
 		return ctrl.Result{}, nil
 	}
@@ -254,26 +252,13 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error creating nsxt alb virtual service")
 
+			conditions.MarkFalse(&tenantCluster, tenantv1.VirtualServiceReadyCondition, tenantv1.VirtualServiceCreateFailedReason, clusterv1.ConditionSeverityError, err.Error())
+
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
 
 	logger.Info("reconciled virtual service", "id", nsxtAlbVirtualService.NsxtAlbVirtualService.ID)
-
-	tenantCluster.Status.VirtualService = &tenantv1.CloudDirectorReference{
-		ID:   nsxtAlbVirtualService.NsxtAlbVirtualService.ID,
-		Name: nsxtAlbVirtualService.NsxtAlbVirtualService.Name,
-	}
-
-	tenantCluster.Status.Pool = &tenantv1.CloudDirectorReference{
-		ID:   nsxtAlbPool.NsxtAlbPool.ID,
-		Name: nsxtAlbPool.NsxtAlbPool.Name,
-	}
-
-	tenantCluster.Status.IPSet = &tenantv1.CloudDirectorReference{
-		ID:   nsxtFirewallGroup.NsxtFirewallGroup.ID,
-		Name: nsxtFirewallGroup.NsxtFirewallGroup.Name,
-	}
 
 	vApp, err := vdc.GetVAppByName(tenantCluster.Name, true)
 	if vcdutil.IgnoreNotFound(err) != nil {
@@ -284,6 +269,8 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		vApp, err = vdc.CreateRawVApp(tenantCluster.Name, "")
 		if err != nil {
 			logger.Error(err, "error creating raw vapp")
+
+			conditions.MarkFalse(&tenantCluster, tenantv1.VAppReadyCondition, tenantv1.VAppCreateFailedReason, clusterv1.ConditionSeverityError, err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -326,18 +313,30 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		Name: vApp.VApp.Name,
 	}
 
-	if !tenantCluster.Status.Ready {
-		patch := client.MergeFrom(tenantCluster.DeepCopy())
+	conditions.MarkTrue(&tenantCluster, tenantv1.VAppReadyCondition)
 
-		tenantCluster.Status.Ready = true
-
-		err := r.Status().Patch(ctx, &tenantCluster, patch)
-		if err != nil {
-			logger.Error(err, "error patching status")
-
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
+	tenantCluster.Status.VirtualService = &tenantv1.CloudDirectorReference{
+		ID:   nsxtAlbVirtualService.NsxtAlbVirtualService.ID,
+		Name: nsxtAlbVirtualService.NsxtAlbVirtualService.Name,
 	}
+
+	conditions.MarkTrue(&tenantCluster, tenantv1.VirtualServiceReadyCondition)
+
+	tenantCluster.Status.Pool = &tenantv1.CloudDirectorReference{
+		ID:   nsxtAlbPool.NsxtAlbPool.ID,
+		Name: nsxtAlbPool.NsxtAlbPool.Name,
+	}
+
+	conditions.MarkTrue(&tenantCluster, tenantv1.PoolReadyCondition)
+
+	tenantCluster.Status.IPSet = &tenantv1.CloudDirectorReference{
+		ID:   nsxtFirewallGroup.NsxtFirewallGroup.ID,
+		Name: nsxtFirewallGroup.NsxtFirewallGroup.Name,
+	}
+
+	conditions.MarkTrue(&tenantCluster, tenantv1.IPSetReadyCondition)
+
+	tenantCluster.Status.Ready = true
 
 	return ctrl.Result{}, nil
 }
@@ -484,4 +483,27 @@ func (r *CloudDirectorTenantClusterReconciler) SetupWithManager(manager ctrl.Man
 
 func ptr[T any](t T) *T {
 	return &t
+}
+
+func patchTenantCluster(ctx context.Context, patchHelper *patch.Helper, tenantCluster *tenantv1.CloudDirectorTenantCluster, opts ...patch.Option) error {
+	conditions.SetSummary(tenantCluster, conditions.WithConditions(
+		tenantv1.VirtualServiceReadyCondition,
+		tenantv1.PoolReadyCondition,
+		tenantv1.IPSetReadyCondition,
+		tenantv1.VAppReadyCondition,
+		tenantv1.ExternalIPAddressReady,
+	))
+
+	opts = append(opts,
+		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
+			clusterv1.ReadyCondition,
+			tenantv1.VirtualServiceReadyCondition,
+			tenantv1.PoolReadyCondition,
+			tenantv1.IPSetReadyCondition,
+			tenantv1.VAppReadyCondition,
+			tenantv1.ExternalIPAddressReady,
+		}},
+	)
+
+	return patchHelper.Patch(ctx, tenantCluster, opts...)
 }

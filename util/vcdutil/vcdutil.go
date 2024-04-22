@@ -10,6 +10,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+
 func GetVCDClientFromTenantCluster(ctx context.Context, c client.Client, tenantCluster *tenantv1.CloudDirectorTenantCluster) (*govcd.VCDClient, error) {
 	objectKey := client.ObjectKey{
 		Name:      tenantCluster.Spec.IdentityRef.Name,
@@ -29,7 +31,6 @@ func GetVCDClientFromTenantCluster(ctx context.Context, c client.Client, tenantC
 
 	token, has := secret.Data["apiToken"]
 	if !has {
-
 		return nil, nil
 	}
 

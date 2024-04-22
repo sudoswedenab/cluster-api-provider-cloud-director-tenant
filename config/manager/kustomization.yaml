@@ -4,7 +4,3 @@ resources:
 - clusterrolebinding.yaml
 - deployment.yaml
 - serviceaccount.yaml
-images:
-- name: controller
-  newName: 075899289117.dkr.ecr.eu-north-1.amazonaws.com/cluster-api-provider-cloud-director-tenant
-  newTag: abc123
