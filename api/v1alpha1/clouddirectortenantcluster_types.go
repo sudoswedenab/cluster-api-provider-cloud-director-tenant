@@ -2,7 +2,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 const (
@@ -11,7 +11,7 @@ const (
 
 type CloudDirectorTenantClusterSpec struct {
 	// +optional
-	ControlPlaneEndpoint v1beta1.APIEndpoint `json:"controlPlaneEndpoint"`
+	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
 
 	Organization      string `json:"organization"`
 	VirtualDataCenter string `json:"virtualDataCenter"`
@@ -34,6 +34,8 @@ type CloudDirectorTenantClusterStatus struct {
 	VApp           *CloudDirectorReference `json:"vApp,omitempty"`
 	IPSet          *CloudDirectorReference `json:"ipSet,omitempty"`
 	Pool           *CloudDirectorReference `json:"pool,omitempty"`
+
+	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -52,6 +54,14 @@ type CloudDirectorTenantClusterList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 
 	Items []CloudDirectorTenantCluster `json:"items,omitempty"`
+}
+
+func (c *CloudDirectorTenantCluster) GetConditions() clusterv1.Conditions {
+	return c.Status.Conditions
+}
+
+func (c *CloudDirectorTenantCluster) SetConditions(conditions clusterv1.Conditions) {
+	c.Status.Conditions = conditions
 }
 
 func init() {

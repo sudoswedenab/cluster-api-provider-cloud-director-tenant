@@ -2,7 +2,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 type CloudDirectorTenantMachineSpec struct {
@@ -22,7 +22,9 @@ type CloudDirectorTenantMachineStatus struct {
 	// +optional
 	Ready bool `json:"ready"`
 
-	Addresses []v1beta1.MachineAddress `json:"addresses,omitempty"`
+	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
+
+	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -41,6 +43,14 @@ type CloudDirectorTenantMachineList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 
 	Items []CloudDirectorTenantMachine `json:"items,omitempty"`
+}
+
+func (m *CloudDirectorTenantMachine) GetConditions() clusterv1.Conditions {
+	return m.Status.Conditions
+}
+
+func (m *CloudDirectorTenantMachine) SetConditions(conditions clusterv1.Conditions) {
+	m.Status.Conditions = conditions
 }
 
 func init() {
