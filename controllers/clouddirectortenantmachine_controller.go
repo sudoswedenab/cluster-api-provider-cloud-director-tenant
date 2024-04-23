@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -644,13 +645,39 @@ func diskSectionFromTenantMachine(existing *types.DiskSection, tenantMachine *te
 	return &diskSection
 }
 
+func (r *CloudDirectorTenantMachineReconciler) clusterToTenantMachines() {
+}
+
 func (r *CloudDirectorTenantMachineReconciler) SetupWithManager(manager ctrl.Manager) error {
 	scheme := manager.GetScheme()
 
 	_ = tenantv1.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
 
-	err := ctrl.NewControllerManagedBy(manager).For(&tenantv1.CloudDirectorTenantMachine{}).Complete(r)
+	clusterToTenantMachines, err := util.ClusterToTypedObjectsMapper(
+		r.Client,
+		&tenantv1.CloudDirectorTenantMachineList{},
+		scheme,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = ctrl.NewControllerManagedBy(manager).
+		For(&tenantv1.CloudDirectorTenantMachine{}).
+		Watches(
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(
+				util.MachineToInfrastructureMapFunc(
+					tenantv1.GroupVersion.WithKind(tenantv1.CloudDirectorTenantMachineKind),
+				),
+			),
+		).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(clusterToTenantMachines),
+		).
+		Complete(r)
 	if err != nil {
 		return err
 	}

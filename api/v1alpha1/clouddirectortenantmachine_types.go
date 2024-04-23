@@ -5,6 +5,10 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
+const (
+	CloudDirectorTenantMachineKind = "CloudDirectorTenantMachine"
+)
+
 type CloudDirectorTenantMachineSpec struct {
 	ProviderID string `json:"providerID,omitempty"`
 
