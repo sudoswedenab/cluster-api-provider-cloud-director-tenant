@@ -40,6 +40,10 @@ const (
 	TemplateNotFoundReason = "TemplateNotFound"
 
 	CloudDirectorErrorReason = "CloudDirectorError"
+
+	AddVirtualMachineErrorReason               = "AddVirtualMachineError"
+	UpdateVirtualMachineSpecSectionErrorReason = "UpdateVirtualMachineSpecSectionError"
+	VirtualMachinePowerOnErrorReason           = "VirtualMachinePowerOnError"
 )
 
 const (

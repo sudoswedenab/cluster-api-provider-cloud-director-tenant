@@ -127,13 +127,13 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	var tenantCluster tenantv1.CloudDirectorTenantCluster
 	err = r.Get(ctx, objectKey, &tenantCluster)
 	if err != nil {
-		logger.Error(err, "error getting cloud director cluster")
-
 		return ctrl.Result{}, err
 	}
 
 	if tenantCluster.Spec.IdentityRef == nil {
 		logger.Info("ignoring owner cluster without identity reference")
+
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.WaitingForClusterInfrastructureReason, clusterv1.ConditionSeverityInfo, "")
 
 		return ctrl.Result{}, nil
 	}
@@ -219,7 +219,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 			task, err := vApp.AddNewVM(tenantMachine.Name, *vAppTemplate, &networkConnectionSection, false)
 			if err != nil {
-				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.AddVirtualMachineErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -383,13 +383,17 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			if err != nil {
 				logger.Error(err, "error updating vm spec section")
 
-				return ctrl.Result{}, err
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.UpdateVirtualMachineSpecSectionErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
 		}
 
 		task, err := vm.PowerOn()
 		if err != nil {
 			logger.Error(err, "error powering on vm")
+
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.VirtualMachinePowerOnErrorReason, clusterv1.ConditionSeverityError, err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
