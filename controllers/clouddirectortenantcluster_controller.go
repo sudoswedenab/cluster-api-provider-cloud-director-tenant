@@ -15,6 +15,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/collections"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -61,19 +62,19 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		}
 	}()
 
-	if !tenantCluster.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, &tenantCluster)
-	}
-
-	if controllerutil.AddFinalizer(&tenantCluster, CloudDirectorTenantClusterFinalizer) {
-		return ctrl.Result{}, nil
-	}
-
 	ownerCluster, err := util.GetOwnerCluster(ctx, r.Client, tenantCluster.ObjectMeta)
 	if err != nil {
 		logger.Error(err, "error getting owner cluster")
 
 		return ctrl.Result{}, err
+	}
+
+	if !tenantCluster.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, &tenantCluster, ownerCluster)
+	}
+
+	if controllerutil.AddFinalizer(&tenantCluster, CloudDirectorTenantClusterFinalizer) {
+		return ctrl.Result{}, nil
 	}
 
 	if tenantCluster.Spec.IdentityRef == nil {
@@ -341,8 +342,19 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 	return ctrl.Result{}, nil
 }
 
-func (r *CloudDirectorTenantClusterReconciler) reconcileDelete(ctx context.Context, tenantCluster *tenantv1.CloudDirectorTenantCluster) (ctrl.Result, error) {
+func (r *CloudDirectorTenantClusterReconciler) reconcileDelete(ctx context.Context, tenantCluster *tenantv1.CloudDirectorTenantCluster, ownerCluster *clusterv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
+
+	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, ownerCluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(machines) > 0 {
+		logger.Info("ignoring until all machines are deleted", "machines", len(machines))
+
+		return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+	}
 
 	vcdClient, err := vcdutil.GetVCDClientFromTenantCluster(ctx, r.Client, tenantCluster)
 	if err != nil {
