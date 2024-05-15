@@ -404,6 +404,8 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error waiting for power on task")
 
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.VirtualMachinePowerOnErrorReason, clusterv1.ConditionSeverityError, err.Error())
+
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 
