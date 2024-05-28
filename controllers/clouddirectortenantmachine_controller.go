@@ -483,128 +483,134 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Context, tenantMachine *tenantv1.CloudDirectorTenantMachine, ownerMachine *clusterv1.Machine, ownerCluster *clusterv1.Cluster) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
-	if ownerCluster.Spec.InfrastructureRef != nil {
-		objectKey := client.ObjectKey{
-			Name:      ownerCluster.Spec.InfrastructureRef.Name,
-			Namespace: ownerCluster.Namespace,
-		}
+	if ownerCluster.Spec.InfrastructureRef == nil {
+		controllerutil.RemoveFinalizer(tenantMachine, CloudDirectorTenantMachineFinalizer)
+	}
 
-		var tenantCluster tenantv1.CloudDirectorTenantCluster
-		err := r.Get(ctx, objectKey, &tenantCluster)
-		if err != nil {
-			logger.Error(err, "error getting cloud director cluster")
+	objectKey := client.ObjectKey{
+		Name:      ownerCluster.Spec.InfrastructureRef.Name,
+		Namespace: ownerCluster.Namespace,
+	}
 
-			return ctrl.Result{}, err
-		}
+	var tenantCluster tenantv1.CloudDirectorTenantCluster
+	err := r.Get(ctx, objectKey, &tenantCluster)
+	if err != nil {
+		logger.Error(err, "error getting cloud director cluster")
 
-		objectKey = client.ObjectKey{
-			Name:      tenantCluster.Spec.IdentityRef.Name,
-			Namespace: tenantCluster.Namespace,
-		}
+		return ctrl.Result{}, err
+	}
 
-		var secret corev1.Secret
-		err = r.Get(ctx, objectKey, &secret)
-		if err != nil {
-			logger.Error(err, "error getting identity secret")
+	objectKey = client.ObjectKey{
+		Name:      tenantCluster.Spec.IdentityRef.Name,
+		Namespace: tenantCluster.Namespace,
+	}
 
-			return ctrl.Result{}, err
-		}
+	var secret corev1.Secret
+	err = r.Get(ctx, objectKey, &secret)
+	if err != nil {
+		logger.Error(err, "error getting identity secret")
 
-		vcdURL, has := secret.Data["vcdEndpoint"]
-		if !has {
-			logger.Info("ignoring cluster without vcd endpoint")
+		return ctrl.Result{}, err
+	}
 
-			return ctrl.Result{}, nil
-		}
+	vcdURL, has := secret.Data["vcdEndpoint"]
+	if !has {
+		logger.Info("ignoring cluster without vcd endpoint")
 
-		token, has := secret.Data["apiToken"]
-		if !has {
-			logger.Info("ignoring cluster without api token")
+		return ctrl.Result{}, nil
+	}
 
-			return ctrl.Result{}, nil
-		}
+	token, has := secret.Data["apiToken"]
+	if !has {
+		logger.Info("ignoring cluster without api token")
 
-		u, err := url.Parse(string(vcdURL))
-		if err != nil {
-			logger.Error(err, "error parsing vcd endpoint url")
+		return ctrl.Result{}, nil
+	}
 
-			return ctrl.Result{}, err
-		}
+	u, err := url.Parse(string(vcdURL))
+	if err != nil {
+		logger.Error(err, "error parsing vcd endpoint url")
 
-		vcdClient := govcd.NewVCDClient(*u, false)
-		err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
-		if err != nil {
-			logger.Error(err, "error setting token")
+		return ctrl.Result{}, err
+	}
 
-			return ctrl.Result{}, err
-		}
+	vcdClient := govcd.NewVCDClient(*u, false)
+	err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
+	if err != nil {
+		logger.Error(err, "error setting token")
 
-		org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
-		if err != nil {
-			logger.Error(err, "error getting org")
+		return ctrl.Result{}, err
+	}
 
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
+	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
+	if err != nil {
+		logger.Error(err, "error getting org")
 
-		vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, true)
-		if err != nil {
-			logger.Error(err, "error getting vdc")
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
 
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
+	vdc, err := org.GetVDCByName(tenantCluster.Spec.VirtualDataCenter, true)
+	if err != nil {
+		logger.Error(err, "error getting vdc")
 
-		if util.IsControlPlaneMachine(ownerMachine) {
-			logger.Info("delete machine is control plane")
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
 
-			internalIPAdress := ""
-			for _, address := range tenantMachine.Status.Addresses {
-				if address.Type == clusterv1.MachineInternalIP {
-					internalIPAdress = address.Address
-				}
-			}
+	if util.IsControlPlaneMachine(ownerMachine) {
+		logger.Info("delete machine is control plane")
 
-			if internalIPAdress != "" {
-				logger.Info("removing machine address from firewall group", "address", internalIPAdress)
-
-				nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
-				if err != nil {
-					logger.Error(err, "error getting nsxt firewall group")
-
-					return CloudDirectorTenantMachineRequeue, nil
-				}
-
-				nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses = slices.DeleteFunc(nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses, func(ipAddress string) bool {
-					return ipAddress == internalIPAdress
-				})
-
-				_, err = nsxtFirewallGroup.Update(nsxtFirewallGroup.NsxtFirewallGroup)
-				if err != nil {
-					logger.Error(err, "error updating firewall group")
-
-					return CloudDirectorTenantMachineRequeue, nil
-				}
+		internalIPAdress := ""
+		for _, address := range tenantMachine.Status.Addresses {
+			if address.Type == clusterv1.MachineInternalIP {
+				internalIPAdress = address.Address
 			}
 		}
 
-		vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
-		if err != nil {
-			logger.Error(err, "error getting vapp")
+		if internalIPAdress != "" {
+			logger.Info("removing machine address from firewall group", "address", internalIPAdress)
 
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
-
-		vm, err := vApp.GetVMByName(tenantMachine.Name, true)
-		if vcdutil.IgnoreNotFound(err) != nil {
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
-
-		if !govcd.ContainsNotFound(err) {
-			err = vm.Delete()
+			nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
 			if err != nil {
-				logger.Error(err, "error deleting vm")
+				logger.Error(err, "error getting nsxt firewall group")
 
-				return ctrl.Result{RequeueAfter: time.Minute}, nil
+				return CloudDirectorTenantMachineRequeue, nil
 			}
+
+			nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses = slices.DeleteFunc(nsxtFirewallGroup.NsxtFirewallGroup.IpAddresses, func(ipAddress string) bool {
+				return ipAddress == internalIPAdress
+			})
+
+			_, err = nsxtFirewallGroup.Update(nsxtFirewallGroup.NsxtFirewallGroup)
+			if err != nil {
+				logger.Error(err, "error updating firewall group")
+
+				return CloudDirectorTenantMachineRequeue, nil
+			}
+		}
+	}
+
+	if tenantCluster.Status.VApp == nil {
+		controllerutil.RemoveFinalizer(tenantMachine, CloudDirectorTenantMachineFinalizer)
+	}
+
+	vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
+	if err != nil {
+		logger.Error(err, "error getting vapp")
+
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	vm, err := vApp.GetVMByName(tenantMachine.Name, true)
+	if vcdutil.IgnoreNotFound(err) != nil {
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	if !govcd.ContainsNotFound(err) {
+		err = vm.Delete()
+		if err != nil {
+			logger.Error(err, "error deleting vm")
+
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
 
