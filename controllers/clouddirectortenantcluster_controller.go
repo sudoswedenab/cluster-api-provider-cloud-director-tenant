@@ -87,7 +87,9 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting client")
 
-		return ctrl.Result{}, err
+		conditions.MarkFalse(&tenantCluster, tenantv1.ExternalIPAddressReady, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "%s", err)
+
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
 	org, err := vcdClient.GetOrgByName(tenantCluster.Spec.Organization)
