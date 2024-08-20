@@ -130,10 +130,10 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 			Port: int32(6443),
 		}
 
-		conditions.MarkTrue(&tenantCluster, tenantv1.ExternalIPAddressReady)
-
 		return ctrl.Result{}, nil
 	}
+
+	conditions.MarkTrue(&tenantCluster, tenantv1.ExternalIPAddressReady)
 
 	if ownerCluster == nil {
 		logger.Info("ignoring cloud director cluster without cluster owner")
