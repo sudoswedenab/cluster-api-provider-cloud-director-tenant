@@ -24,7 +24,7 @@ func GetVCDClientFromTenantCluster(ctx context.Context, c client.Client, tenantC
 		return nil, err
 	}
 
-	vcdURL, has := secret.Data["vcdEndpoint"]
+	baseURL, has := secret.Data["url"]
 	if !has {
 		return nil, nil
 	}
@@ -34,7 +34,7 @@ func GetVCDClientFromTenantCluster(ctx context.Context, c client.Client, tenantC
 		return nil, nil
 	}
 
-	u, err := url.Parse(string(vcdURL))
+	u, err := url.Parse(string(baseURL) + "/api")
 	if err != nil {
 
 		return nil, err
