@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"log/slog"
-	"net/url"
 	"slices"
 	"time"
 
@@ -500,44 +499,9 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 		return ctrl.Result{}, err
 	}
 
-	objectKey = client.ObjectKey{
-		Name:      tenantCluster.Spec.IdentityRef.Name,
-		Namespace: tenantCluster.Namespace,
-	}
-
-	var secret corev1.Secret
-	err = r.Get(ctx, objectKey, &secret)
+	vcdClient, err := vcdutil.GetVCDClientFromTenantCluster(ctx, r.Client, &tenantCluster)
 	if err != nil {
-		logger.Error(err, "error getting identity secret")
-
-		return ctrl.Result{}, err
-	}
-
-	vcdURL, has := secret.Data["vcdEndpoint"]
-	if !has {
-		logger.Info("ignoring cluster without vcd endpoint")
-
-		return ctrl.Result{}, nil
-	}
-
-	token, has := secret.Data["apiToken"]
-	if !has {
-		logger.Info("ignoring cluster without api token")
-
-		return ctrl.Result{}, nil
-	}
-
-	u, err := url.Parse(string(vcdURL))
-	if err != nil {
-		logger.Error(err, "error parsing vcd endpoint url")
-
-		return ctrl.Result{}, err
-	}
-
-	vcdClient := govcd.NewVCDClient(*u, false)
-	err = vcdClient.SetToken(tenantCluster.Spec.Organization, govcd.ApiTokenHeader, string(token))
-	if err != nil {
-		logger.Error(err, "error setting token")
+		logger.Error(err, "error getting vcd client")
 
 		return ctrl.Result{}, err
 	}
