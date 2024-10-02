@@ -1,3 +1,3 @@
 package main
 
-//go:generate controller-gen crd object rbac:roleName=manager-role paths="./..."
+//go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen crd object rbac:roleName=manager-role paths="./..."
