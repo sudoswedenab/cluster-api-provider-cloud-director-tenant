@@ -484,6 +484,8 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 
 	if ownerCluster.Spec.InfrastructureRef == nil {
 		controllerutil.RemoveFinalizer(tenantMachine, CloudDirectorTenantMachineFinalizer)
+
+		return ctrl.Result{}, nil
 	}
 
 	objectKey := client.ObjectKey{
@@ -555,6 +557,8 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 
 	if tenantCluster.Status.VApp == nil {
 		controllerutil.RemoveFinalizer(tenantMachine, CloudDirectorTenantMachineFinalizer)
+
+		return ctrl.Result{}, nil
 	}
 
 	vApp, err := vdc.GetVAppById(tenantCluster.Status.VApp.ID, true)
