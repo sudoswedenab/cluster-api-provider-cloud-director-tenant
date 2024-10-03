@@ -213,7 +213,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		queryParameters := url.Values{}
 		queryParameters.Set("filter", "gatewayRef.id=="+nsxtEdgeGateway.EdgeGateway.ID)
 
-		serviceEngineGroupAssignment, err := vcdClient.GetFilteredAlbServiceEngineGroupAssignmentByName("TenantSEG01", queryParameters)
+		serviceEngineGroupAssignment, err := vcdClient.GetFilteredAlbServiceEngineGroupAssignmentByName(tenantCluster.Spec.ServiceEngineGroup, queryParameters)
 		if err != nil {
 			logger.Error(err, "error getting service engine group assignment")
 

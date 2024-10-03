@@ -13,10 +13,11 @@ type CloudDirectorTenantClusterSpec struct {
 	// +optional
 	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
 
-	Organization      string `json:"organization"`
-	VirtualDataCenter string `json:"virtualDataCenter"`
-	EdgeGateway       string `json:"edgeGateway"`
-	Network           string `json:"network"`
+	Organization       string `json:"organization"`
+	VirtualDataCenter  string `json:"virtualDataCenter"`
+	EdgeGateway        string `json:"edgeGateway"`
+	Network            string `json:"network"`
+	ServiceEngineGroup string `json:"serviceEngineGroup"`
 
 	IdentityRef *CloudDirectorTenantIdentityRef `json:"identityRef,omitempty"`
 

@@ -67,6 +67,8 @@ spec:
                 type: string
               organization:
                 type: string
+              serviceEngineGroup:
+                type: string
               useUIDForNames:
                 type: boolean
               virtualDataCenter:
@@ -75,6 +77,7 @@ spec:
             - edgeGateway
             - network
             - organization
+            - serviceEngineGroup
             - virtualDataCenter
             type: object
           status:
