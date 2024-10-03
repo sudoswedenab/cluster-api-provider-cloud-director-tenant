@@ -14,6 +14,7 @@ import (
 	typesv56 "github.com/vmware/go-vcloud-director/v2/types/v56"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/collections"
@@ -179,7 +180,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 		albPoolConfig := typesv56.NsxtAlbPool{
 			Name:        albPoolName,
-			DefaultPort: ptr(6443),
+			DefaultPort: ptr.To(6443),
 			GatewayRef: typesv56.OpenApiReference{
 				Name: nsxtEdgeGateway.EdgeGateway.Name,
 				ID:   nsxtEdgeGateway.EdgeGateway.ID,
@@ -231,7 +232,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 		nsxtAlbVirtualServiceConfig := typesv56.NsxtAlbVirtualService{
 			Name:    albVirtualServiceName,
-			Enabled: ptr(true),
+			Enabled: ptr.To(true),
 			GatewayRef: typesv56.OpenApiReference{
 				Name: nsxtEdgeGateway.EdgeGateway.Name,
 				ID:   nsxtEdgeGateway.EdgeGateway.ID,
@@ -247,7 +248,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 			VirtualIpAddress: tenantCluster.Spec.ControlPlaneEndpoint.Host,
 			ServicePorts: []typesv56.NsxtAlbVirtualServicePort{
 				{
-					PortStart: ptr(int(tenantCluster.Spec.ControlPlaneEndpoint.Port)),
+					PortStart: ptr.To(int(tenantCluster.Spec.ControlPlaneEndpoint.Port)),
 					TcpUdpProfile: &typesv56.NsxtAlbVirtualServicePortTcpUdpProfile{
 						Type: "TCP_PROXY",
 					},
@@ -502,10 +503,6 @@ func (r *CloudDirectorTenantClusterReconciler) SetupWithManager(manager ctrl.Man
 	}
 
 	return nil
-}
-
-func ptr[T any](t T) *T {
-	return &t
 }
 
 func patchTenantCluster(ctx context.Context, patchHelper *patch.Helper, tenantCluster *tenantv1.CloudDirectorTenantCluster, opts ...patch.Option) error {
