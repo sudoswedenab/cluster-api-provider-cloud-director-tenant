@@ -67,6 +67,8 @@ spec:
                 type: string
               organization:
                 type: string
+              useUIDForNames:
+                type: boolean
               virtualDataCenter:
                 type: string
             required:

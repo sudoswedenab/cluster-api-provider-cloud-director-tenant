@@ -19,6 +19,8 @@ type CloudDirectorTenantClusterSpec struct {
 	Network           string `json:"network"`
 
 	IdentityRef *CloudDirectorTenantIdentityRef `json:"identityRef,omitempty"`
+
+	UseUIDForNames bool `json:"useUIDForNames,omitempty"`
 }
 
 type CloudDirectorReference struct {
