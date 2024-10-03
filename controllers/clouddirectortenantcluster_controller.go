@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/nameutil"
 	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/vcdutil"
 	"github.com/vmware/go-vcloud-director/v2/govcd"
 	typesv56 "github.com/vmware/go-vcloud-director/v2/types/v56"
@@ -147,12 +148,14 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		return ctrl.Result{}, nil
 	}
 
-	nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupByName(ownerCluster.Spec.ControlPlaneRef.Name, typesv56.FirewallGroupTypeIpSet)
+	nsxtFirewallGroupName := nameutil.ResourceNameWithUse(&tenantCluster, nameutil.UseControlPlane)
+
+	nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupByName(nsxtFirewallGroupName, typesv56.FirewallGroupTypeIpSet)
 	if govcd.ContainsNotFound(err) {
 		logger.Info("firewall group not found")
 
 		nsxtFirewallGroupConfig := typesv56.NsxtFirewallGroup{
-			Name:      ownerCluster.Spec.ControlPlaneRef.Name,
+			Name:      nsxtFirewallGroupName,
 			TypeValue: typesv56.FirewallGroupTypeIpSet,
 			OwnerRef: &typesv56.OpenApiReference{
 				Name: nsxtEdgeGateway.EdgeGateway.Name,
@@ -168,12 +171,14 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		}
 	}
 
-	nsxtAlbPool, err := vcdClient.GetAlbPoolByName(nsxtEdgeGateway.EdgeGateway.ID, ownerCluster.Spec.ControlPlaneRef.Name)
+	albPoolName := nameutil.ResourceNameWithUse(&tenantCluster, nameutil.UseControlPlane)
+
+	nsxtAlbPool, err := vcdClient.GetAlbPoolByName(nsxtEdgeGateway.EdgeGateway.ID, albPoolName)
 	if govcd.ContainsNotFound(err) {
 		logger.Info("alb pool not found")
 
 		albPoolConfig := typesv56.NsxtAlbPool{
-			Name:        ownerCluster.Spec.ControlPlaneRef.Name,
+			Name:        albPoolName,
 			DefaultPort: ptr(6443),
 			GatewayRef: typesv56.OpenApiReference{
 				Name: nsxtEdgeGateway.EdgeGateway.Name,
@@ -202,7 +207,9 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 	logger.Info("get virtual service by name", "edgeGateway", nsxtEdgeGateway.EdgeGateway.ID, "controlPlaneRef", ownerCluster.Spec.ControlPlaneRef.Name)
 
-	nsxtAlbVirtualService, err := vcdClient.GetAlbVirtualServiceByName(nsxtEdgeGateway.EdgeGateway.ID, ownerCluster.Spec.ControlPlaneRef.Name)
+	albVirtualServiceName := nameutil.ResourceNameWithUse(&tenantCluster, nameutil.UseControlPlane)
+
+	nsxtAlbVirtualService, err := vcdClient.GetAlbVirtualServiceByName(nsxtEdgeGateway.EdgeGateway.ID, albVirtualServiceName)
 	if vcdutil.IgnoreNotFound(err) != nil {
 		logger.Error(err, "error getting virual service")
 
@@ -223,7 +230,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		logger.Info("creating virtual service")
 
 		nsxtAlbVirtualServiceConfig := typesv56.NsxtAlbVirtualService{
-			Name:    ownerCluster.Spec.ControlPlaneRef.Name,
+			Name:    albVirtualServiceName,
 			Enabled: ptr(true),
 			GatewayRef: typesv56.OpenApiReference{
 				Name: nsxtEdgeGateway.EdgeGateway.Name,
@@ -263,13 +270,15 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 	logger.Info("reconciled virtual service", "id", nsxtAlbVirtualService.NsxtAlbVirtualService.ID)
 
-	vApp, err := vdc.GetVAppByName(tenantCluster.Name, true)
+	vAppName := nameutil.ResourceName(&tenantCluster)
+
+	vApp, err := vdc.GetVAppByName(vAppName, true)
 	if vcdutil.IgnoreNotFound(err) != nil {
 		return ctrl.Result{}, err
 	}
 
 	if govcd.ContainsNotFound(err) {
-		vApp, err = vdc.CreateRawVApp(tenantCluster.Name, "")
+		vApp, err = vdc.CreateRawVApp(vAppName, "")
 		if err != nil {
 			logger.Error(err, "error creating raw vapp")
 
