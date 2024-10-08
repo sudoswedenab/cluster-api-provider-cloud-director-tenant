@@ -111,9 +111,9 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	}
 
 	if !util.IsControlPlaneMachine(ownerMachine) && !conditions.IsTrue(ownerCluster, clusterv1.ControlPlaneInitializedCondition) {
-		logger.Info("ignoring machine until control plane is initialized")
+		logger.Info("ignoring machine until control plane is available")
 
-		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, clusterv1.WaitingForControlPlaneProviderInitializedReason, clusterv1.ConditionSeverityInfo, "")
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, clusterv1.WaitingForControlPlaneAvailableReason, clusterv1.ConditionSeverityInfo, "")
 
 		return ctrl.Result{}, nil
 	}
