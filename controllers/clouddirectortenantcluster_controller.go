@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"time"
 
 	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
@@ -33,6 +34,10 @@ import (
 
 const (
 	CloudDirectorTenantClusterFinalizer = "cloud-director-tenant.infrastructure.cluster.x-k8s.io/finalizer"
+)
+
+var (
+	matchRequestID = regexp.MustCompile(`\[\s[a-z0-9-].+\s\]`)
 )
 
 type CloudDirectorTenantClusterReconciler struct {
@@ -263,7 +268,9 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error creating nsxt alb virtual service")
 
-			conditions.MarkFalse(&tenantCluster, tenantv1.VirtualServiceReadyCondition, tenantv1.VirtualServiceCreateFailedReason, clusterv1.ConditionSeverityError, err.Error())
+			replaced := matchRequestID.ReplaceAllString(err.Error(), "[]")
+
+			conditions.MarkFalse(&tenantCluster, tenantv1.VirtualServiceReadyCondition, tenantv1.VirtualServiceCreateFailedReason, clusterv1.ConditionSeverityError, replaced)
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
