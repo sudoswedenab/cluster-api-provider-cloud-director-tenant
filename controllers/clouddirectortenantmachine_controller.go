@@ -202,6 +202,8 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 			if govcd.ContainsNotFound(err) {
 				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.TemplateNotFoundReason, clusterv1.ConditionSeverityInfo, "")
+
+				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
 
 			networkConnectionSection := types.NetworkConnectionSection{
