@@ -3,8 +3,8 @@ package controllers
 import (
 	"testing"
 
-	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
 	"github.com/google/go-cmp/cmp"
+	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
 	types "github.com/vmware/go-vcloud-director/v2/types/v56"
 )
 

@@ -1,7 +1,7 @@
 package nameutil
 
 import (
-	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
 )
 
 type Use string

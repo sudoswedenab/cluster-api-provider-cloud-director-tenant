@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/signal"
 
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/controllers"
 	"github.com/go-logr/logr"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/controllers"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"

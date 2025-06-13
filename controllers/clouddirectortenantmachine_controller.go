@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
-	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/cloudinit"
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/vcdutil"
+	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/cloudinit"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/vcdutil"
 	"github.com/vmware/go-vcloud-director/v2/govcd"
 	types "github.com/vmware/go-vcloud-director/v2/types/v56"
 	corev1 "k8s.io/api/core/v1"

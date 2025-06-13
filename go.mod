@@ -1,4 +1,4 @@
-module bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant
+module github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant
 
 go 1.21.3
 

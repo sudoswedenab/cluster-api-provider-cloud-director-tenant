@@ -3,8 +3,8 @@ package nameutil_test
 import (
 	"testing"
 
-	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/nameutil"
+	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/nameutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

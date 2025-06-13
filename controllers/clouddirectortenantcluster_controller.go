@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"time"
 
-	tenantv1 "bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/nameutil"
-	"bitbucket.org/sudosweden/cluster-api-provider-cloud-director-tenant/util/vcdutil"
+	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/nameutil"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/vcdutil"
 	"github.com/vmware/go-vcloud-director/v2/govcd"
 	typesv56 "github.com/vmware/go-vcloud-director/v2/types/v56"
 	"k8s.io/apimachinery/pkg/types"
