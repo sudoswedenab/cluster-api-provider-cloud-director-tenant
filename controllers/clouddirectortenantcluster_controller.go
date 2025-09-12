@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"log/slog"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -42,7 +41,6 @@ var (
 
 type CloudDirectorTenantClusterReconciler struct {
 	client.Client
-	Logger *slog.Logger
 }
 
 func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {

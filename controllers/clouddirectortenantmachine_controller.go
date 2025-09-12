@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"encoding/base64"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -39,7 +38,6 @@ var (
 
 type CloudDirectorTenantMachineReconciler struct {
 	client.Client
-	Logger *slog.Logger
 }
 
 func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
