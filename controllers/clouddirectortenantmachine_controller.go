@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
+	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/clientcache"
 	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/cloudinit"
 	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/util/vcdutil"
 	"github.com/vmware/go-vcloud-director/v2/govcd"
@@ -25,8 +26,9 @@ import (
 
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantmachines,verbs=get;list;patch;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantmachines/status,verbs=patch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=clouddirectortenantmachines,verbs=get;list;patch;watch
 
 const (
 	CloudDirectorTenantMachineFinalizer = "clouddirectortenant.infrastructure.cluster.x-k8s.io/finalizer"
@@ -38,6 +40,8 @@ var (
 
 type CloudDirectorTenantMachineReconciler struct {
 	client.Client
+
+	ClientCache clientcache.ClientCache
 }
 
 func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reterr error) {
@@ -135,7 +139,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		return ctrl.Result{}, nil
 	}
 
-	vcdClient, err := vcdutil.GetVCDClientFromTenantCluster(ctx, r.Client, &tenantCluster)
+	vcdClient, err := r.ClientCache.GetVCDClient(ctx, r.Client, &tenantCluster)
 	if err != nil {
 		logger.Error(err, "error getting client")
 
@@ -501,7 +505,7 @@ func (r *CloudDirectorTenantMachineReconciler) reconcileDelete(ctx context.Conte
 		return ctrl.Result{}, err
 	}
 
-	vcdClient, err := vcdutil.GetVCDClientFromTenantCluster(ctx, r.Client, &tenantCluster)
+	vcdClient, err := r.ClientCache.GetVCDClient(ctx, r.Client, &tenantCluster)
 	if err != nil {
 		logger.Error(err, "error getting vcd client")
 
