@@ -1,6 +1,6 @@
 module github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant
 
-go 1.21.3
+go 1.24.6
 
 require (
 	github.com/go-logr/logr v1.4.1
