@@ -1,0 +1,43 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+      - uses: actions/setup-go@c0137caad775660c0844396c52da96e560aba63d #v6.0.0
+        with:
+          go-version-file: go.mod
+      - uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 #v2.13
+        id: build
+        with:
+          image: sudoswedenab/capi-cloud-director-tenant
+          tags: ${{ github.ref_name }}
+          containerfiles: |
+            Containerfile
+      - uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c #v2.8
+        id: registry
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: |
+          go install sigs.k8s.io/kustomize/kustomize/v5@v5.7.1
+          make release
+        env:
+          TAG: ${{ github.ref_name }}
+      - uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 #v2.4.1
+        with:
+          draft: true
+          files: _out/*
+          generate_release_notes: true
