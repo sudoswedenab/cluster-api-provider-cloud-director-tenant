@@ -18,3 +18,4 @@ release: clean-release $(RELEASE_DIR)
 	kustomize create --resources config/default
 	kustomize edit set image controller=$(REGISTRY)/$(IMAGE_NAME):$(TAG)
 	kustomize build > $(RELEASE_DIR)/infrastructure-components.yaml
+	cp metadata.yaml $(RELEASE_DIR)/metadata.yaml
