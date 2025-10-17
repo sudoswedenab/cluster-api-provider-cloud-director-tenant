@@ -1,8 +1,8 @@
-name: build
+name: release
 on:
   push:
-    branches:
-      - test
+    tags:
+      - "v*"
 permissions:
   contents: read
 jobs:
@@ -40,3 +40,4 @@ jobs:
         with:
           draft: true
           files: _out/*
+          generate_release_notes: true
