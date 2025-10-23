@@ -143,7 +143,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error getting unused ip addresses")
 
-			conditions.MarkFalse(&tenantCluster, tenantv1.ExternalIPAddressReady, tenantv1.ExternalIPAddressGetUnusedFailedReason, clusterv1.ConditionSeverityError, err.Error())
+			conditions.MarkFalse(&tenantCluster, tenantv1.ExternalIPAddressReady, tenantv1.ExternalIPAddressGetUnusedFailedReason, clusterv1.ConditionSeverityError, "%s", err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -286,7 +286,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 
 			replaced := matchRequestID.ReplaceAllString(err.Error(), "[]")
 
-			conditions.MarkFalse(&tenantCluster, tenantv1.VirtualServiceReadyCondition, tenantv1.VirtualServiceCreateFailedReason, clusterv1.ConditionSeverityError, replaced)
+			conditions.MarkFalse(&tenantCluster, tenantv1.VirtualServiceReadyCondition, tenantv1.VirtualServiceCreateFailedReason, clusterv1.ConditionSeverityError, "%s", replaced)
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -306,7 +306,7 @@ func (r *CloudDirectorTenantClusterReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error creating raw vapp")
 
-			conditions.MarkFalse(&tenantCluster, tenantv1.VAppReadyCondition, tenantv1.VAppCreateFailedReason, clusterv1.ConditionSeverityError, err.Error())
+			conditions.MarkFalse(&tenantCluster, tenantv1.VAppReadyCondition, tenantv1.VAppCreateFailedReason, clusterv1.ConditionSeverityError, "%s", err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}

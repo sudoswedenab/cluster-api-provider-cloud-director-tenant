@@ -157,7 +157,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting client")
 
-		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting client: %s", err.Error())
 
 		return ctrl.Result{}, err
 	}
@@ -166,7 +166,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting org")
 
-		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting org: %s", err.Error())
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -175,7 +175,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting vdc")
 
-		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting vdc: %s", err.Error())
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -184,7 +184,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 	if err != nil {
 		logger.Error(err, "error getting vapp")
 
-		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+		conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting vapp: %s", err.Error())
 
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -196,7 +196,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		if vcdutil.IgnoreNotFound(err) != nil {
 			logger.Error(err, "error getting catalog", "catalog", tenantMachine.Spec.Catalog)
 
-			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting catalog: %s", err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -211,7 +211,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		if govcd.ContainsNotFound(err) {
 			vAppTemplate, err := catalog.GetVAppTemplateByName(tenantMachine.Spec.Template)
 			if vcdutil.IgnoreNotFound(err) != nil {
-				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting vapp template: %s", err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -236,7 +236,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 			task, err := vApp.AddNewVM(tenantMachine.Name, *vAppTemplate, &networkConnectionSection, false)
 			if err != nil {
-				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.AddVirtualMachineErrorReason, clusterv1.ConditionSeverityError, err.Error())
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.AddVirtualMachineErrorReason, clusterv1.ConditionSeverityError, "%s", err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -254,7 +254,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			if err != nil {
 				logger.Error(err, "error getting new vm by name")
 
-				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting vm by name: %s", err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -400,7 +400,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			if err != nil {
 				logger.Error(err, "error updating vm spec section")
 
-				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.UpdateVirtualMachineSpecSectionErrorReason, clusterv1.ConditionSeverityError, err.Error())
+				conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.UpdateVirtualMachineSpecSectionErrorReason, clusterv1.ConditionSeverityError, "%s", err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -410,7 +410,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error powering on vm")
 
-			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.VirtualMachinePowerOnErrorReason, clusterv1.ConditionSeverityError, err.Error())
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.VirtualMachinePowerOnErrorReason, clusterv1.ConditionSeverityError, "%s", err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -421,7 +421,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 		if err != nil {
 			logger.Error(err, "error waiting for power on task")
 
-			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.VirtualMachinePowerOnErrorReason, clusterv1.ConditionSeverityError, err.Error())
+			conditions.MarkFalse(&tenantMachine, tenantv1.VirtualMachineReadyCondition, tenantv1.VirtualMachinePowerOnErrorReason, clusterv1.ConditionSeverityError, "%s", err.Error())
 
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -448,9 +448,9 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 
 		nsxtFirewallGroup, err := vdc.GetNsxtFirewallGroupById(tenantCluster.Status.IPSet.ID)
 		if err != nil {
-			logger.Error(err, "errora getting nsxt firewall group")
+			logger.Error(err, "error getting nsxt firewall group")
 
-			conditions.MarkFalse(&tenantMachine, tenantv1.LoadBalancerMemberCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+			conditions.MarkFalse(&tenantMachine, tenantv1.LoadBalancerMemberCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error getting nsxt firewall group: %s", err.Error())
 
 			return CloudDirectorTenantMachineRequeue, nil
 		}
@@ -481,7 +481,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 			if err != nil {
 				logger.Error(err, "error updating firewall group")
 
-				conditions.MarkFalse(&tenantMachine, tenantv1.LoadBalancerMemberCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, err.Error())
+				conditions.MarkFalse(&tenantMachine, tenantv1.LoadBalancerMemberCondition, tenantv1.CloudDirectorErrorReason, clusterv1.ConditionSeverityError, "error updating firewall group: %s", err.Error())
 
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
