@@ -73,6 +73,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	clientCache.RegisterMetrics()
+
 	err = mgr.Start(ctx)
 	if err != nil {
 		logger.Error("error running manager", "err", err)

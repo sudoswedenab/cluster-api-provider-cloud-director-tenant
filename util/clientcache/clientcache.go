@@ -16,10 +16,14 @@ package clientcache
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"hash/fnv"
 	"net/url"
+	"sync"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v5"
 	tenantv1 "github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/api/v1alpha1"
 	"github.com/vmware/go-vcloud-director/v2/govcd"
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +38,7 @@ type ClientCache interface {
 
 type clientCacheProvider struct {
 	expiringCache *cache.LRUExpireCache
+	mutex         sync.Mutex
 }
 
 func (p *clientCacheProvider) GetVCDClient(ctx context.Context, c client.Client, tenantCluster *tenantv1.CloudDirectorTenantCluster) (*govcd.VCDClient, error) {
@@ -77,30 +82,76 @@ func (p *clientCacheProvider) GetVCDClient(ctx context.Context, c client.Client,
 	hash32.Write(organization)
 
 	sum := hash32.Sum32()
-
 	logger.Info("secret hashed", "secretName", secret.Name, "secretNamespace", secret.Namespace, "sum", sum)
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 
 	i, found := p.expiringCache.Get(sum)
 	if found {
 		logger.Info("existing client found", "sum", sum)
 
-		return i.(*govcd.VCDClient), nil
+		c := i.(*govcd.VCDClient)
+
+		token := c.Client.VCDToken
+		remainingTTL, err := getTokenRemainingTTL(token)
+		if err != nil {
+			return nil, err
+		}
+
+		clientCacheKeyTTL.WithLabelValues(
+			fmt.Sprintf("%d", sum),
+			string(endpoint),
+			string(organization),
+		).Set(remainingTTL.Seconds())
+
+		return c, nil
 	}
 
 	logger.Info("creating new client", "sum", sum)
-
 	vcdClient := govcd.NewVCDClient(*u, false)
-	refreshToken, err := vcdClient.SetApiToken(string(organization), string(apiToken))
+	token, err := vcdClient.SetApiToken(string(organization), string(apiToken))
 	if err != nil {
 		return nil, err
 	}
 
-	p.expiringCache.Add(sum, vcdClient, time.Second*time.Duration(refreshToken.ExpiresIn))
+	ttl, err := getTokenRemainingTTL(token.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	p.expiringCache.Add(sum, vcdClient, ttl)
+	clientCacheKeyTTL.WithLabelValues(
+		fmt.Sprintf("%d", sum),
+		string(endpoint),
+		string(organization),
+	).Set(ttl.Seconds())
 
 	return vcdClient, nil
 }
 
 var _ ClientCache = &clientCacheProvider{}
+
+func getTokenRemainingTTL(tokenString string) (time.Duration, error) {
+	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return time.Duration(-1), errors.New("Unable to parse input as JWT token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return time.Duration(-1), errors.New("Unable to parse token claims")
+	}
+
+	expFloat, ok := claims["exp"].(float64)
+	if !ok {
+		return time.Duration(-1), errors.New("Unable to get expiration date from token")
+	}
+
+	expiration := time.Unix(int64(expFloat), 0)
+
+	return time.Until(expiration), nil
+}
 
 func NewClientCache() *clientCacheProvider {
 	c := clientCacheProvider{

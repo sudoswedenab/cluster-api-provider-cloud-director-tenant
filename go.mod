@@ -4,7 +4,9 @@ go 1.24.6
 
 require (
 	github.com/go-logr/logr v1.4.1
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/go-cmp v0.6.0
+	github.com/prometheus/client_golang v1.16.0
 	github.com/vmware/go-vcloud-director/v2 v2.26.1
 	k8s.io/api v0.29.0
 	k8s.io/apimachinery v0.29.0
@@ -57,7 +59,6 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/peterhellberg/link v1.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_golang v1.16.0 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
