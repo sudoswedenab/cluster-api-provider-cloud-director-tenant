@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/sudoswedenab/cluster-api-provider-cloud-director-tenant/controllers"
@@ -26,9 +27,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 func main() {
+	collectMetricsInterval := 30
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -73,7 +76,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	clientCache.RegisterMetrics()
+	prometheusMetricsOptions := []clientcache.PrometheusMetricsOption{
+		clientcache.WithLogger(logger),
+		clientcache.WithPrometheusRegistry(metrics.Registry),
+		clientcache.WithManager(mgr),
+		clientcache.WithClientCache(clientCache),
+	}
+
+	prometheusMetrics, err := clientcache.NewPrometheusMetrics(prometheusMetricsOptions...)
+	if err != nil {
+		logger.Error("error creating new prometheus metrics", "err", err)
+		os.Exit(1)
+	}
+
+	go func() {
+		synced := mgr.GetCache().WaitForCacheSync(ctx)
+		if !synced {
+			logger.Warn("collecting metrics before cache is synced")
+		}
+
+		interval := time.Second * time.Duration(collectMetricsInterval)
+
+		ticker := time.NewTicker(interval)
+		for range ticker.C {
+			err := prometheusMetrics.CollectMetrics()
+			if err != nil {
+				logger.Error("error collecting prometheus metrics", "err", err)
+			}
+		}
+	}()
 
 	err = mgr.Start(ctx)
 	if err != nil {

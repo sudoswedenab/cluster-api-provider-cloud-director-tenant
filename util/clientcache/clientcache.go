@@ -17,7 +17,6 @@ package clientcache
 import (
 	"context"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"net/url"
 	"sync"
@@ -39,6 +38,10 @@ type ClientCache interface {
 type clientCacheProvider struct {
 	expiringCache *cache.LRUExpireCache
 	mutex         sync.Mutex
+}
+
+func (p *clientCacheProvider) getCache() (*cache.LRUExpireCache, error) {
+	return p.expiringCache, nil
 }
 
 func (p *clientCacheProvider) GetVCDClient(ctx context.Context, c client.Client, tenantCluster *tenantv1.CloudDirectorTenantCluster) (*govcd.VCDClient, error) {
@@ -91,21 +94,7 @@ func (p *clientCacheProvider) GetVCDClient(ctx context.Context, c client.Client,
 	if found {
 		logger.Info("existing client found", "sum", sum)
 
-		c := i.(*govcd.VCDClient)
-
-		token := c.Client.VCDToken
-		remainingTTL, err := getTokenRemainingTTL(token)
-		if err != nil {
-			return nil, err
-		}
-
-		clientCacheKeyTTL.WithLabelValues(
-			fmt.Sprintf("%d", sum),
-			string(endpoint),
-			string(organization),
-		).Set(remainingTTL.Seconds())
-
-		return c, nil
+		return i.(*govcd.VCDClient), nil
 	}
 
 	logger.Info("creating new client", "sum", sum)
@@ -121,11 +110,6 @@ func (p *clientCacheProvider) GetVCDClient(ctx context.Context, c client.Client,
 	}
 
 	p.expiringCache.Add(sum, vcdClient, ttl)
-	clientCacheKeyTTL.WithLabelValues(
-		fmt.Sprintf("%d", sum),
-		string(endpoint),
-		string(organization),
-	).Set(ttl.Seconds())
 
 	return vcdClient, nil
 }
