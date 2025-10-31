@@ -48,9 +48,7 @@ const (
 	CloudDirectorTenantMachineFinalizer = "clouddirectortenant.infrastructure.cluster.x-k8s.io/finalizer"
 )
 
-var (
-	CloudDirectorTenantMachineRequeue = ctrl.Result{RequeueAfter: time.Second * 20}
-)
+var CloudDirectorTenantMachineRequeue = ctrl.Result{RequeueAfter: time.Second * 20}
 
 type CloudDirectorTenantMachineReconciler struct {
 	client.Client
@@ -332,6 +330,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 				property.DefaultValue = base64.StdEncoding.EncodeToString(value)
 
 				hasUserdata = true
+
 				break
 			}
 		}
@@ -351,6 +350,7 @@ func (r *CloudDirectorTenantMachineReconciler) Reconcile(ctx context.Context, re
 				property.DefaultValue = base64.StdEncoding.EncodeToString(cloudInit)
 
 				hasMetadata = true
+
 				break
 			}
 		}
@@ -641,9 +641,6 @@ func diskSectionFromTenantMachine(existing *types.DiskSection, tenantMachine *te
 	}
 
 	return &diskSection
-}
-
-func (r *CloudDirectorTenantMachineReconciler) clusterToTenantMachines() {
 }
 
 func (r *CloudDirectorTenantMachineReconciler) SetupWithManager(manager ctrl.Manager) error {

@@ -51,9 +51,7 @@ const (
 	CloudDirectorTenantClusterFinalizer = "cloud-director-tenant.infrastructure.cluster.x-k8s.io/finalizer"
 )
 
-var (
-	matchRequestID = regexp.MustCompile(`\[\s[a-z0-9-].+\s\]`)
-)
+var matchRequestID = regexp.MustCompile(`\[\s[a-z0-9-].+\s\]`)
 
 type CloudDirectorTenantClusterReconciler struct {
 	client.Client
@@ -509,7 +507,7 @@ func (r *CloudDirectorTenantClusterReconciler) SetupWithManager(manager ctrl.Man
 		For(&tenantv1.CloudDirectorTenantCluster{}).
 		Watches(
 			&clusterv1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+			handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
 				return []reconcile.Request{
 					{
 						NamespacedName: types.NamespacedName{

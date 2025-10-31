@@ -26,12 +26,10 @@ const (
 
 func ResourceName(tenantCluster *tenantv1.CloudDirectorTenantCluster) string {
 	if tenantCluster.Spec.UseUIDForNames {
-
 		return string(tenantCluster.UID)
 	}
 
 	return tenantCluster.Name
-
 }
 
 func ResourceNameWithUse(tenantCluster *tenantv1.CloudDirectorTenantCluster, use Use) string {
