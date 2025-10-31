@@ -119,17 +119,17 @@ var _ ClientCache = &clientCacheProvider{}
 func getTokenRemainingTTL(tokenString string) (time.Duration, error) {
 	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {
-		return time.Duration(-1), errors.New("Unable to parse input as JWT token")
+		return time.Duration(-1), errors.New("unable to parse input as JWT token")
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return time.Duration(-1), errors.New("Unable to parse token claims")
+		return time.Duration(-1), errors.New("unable to parse token claims")
 	}
 
 	expFloat, ok := claims["exp"].(float64)
 	if !ok {
-		return time.Duration(-1), errors.New("Unable to get expiration date from token")
+		return time.Duration(-1), errors.New("unable to get expiration date from token")
 	}
 
 	expiration := time.Unix(int64(expFloat), 0)
